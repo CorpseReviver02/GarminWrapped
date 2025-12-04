@@ -469,6 +469,27 @@ function computeMetrics(rows: any[]): Metrics {
     }));
     arr.sort((a, b) => b.count - a.count);
     topActivityTypes = arr.slice(0, 3);
+
+  // Build longest activity summary
+  let longestActivitySummary: Metrics['longestActivity'] | undefined;
+  if (longestActivity && longestActivity.durationSeconds > 0) {
+    longestActivitySummary = {
+      title: String(longestActivity.row['Title'] || 'Unknown activity'),
+      date: formatDateDisplay(longestActivity.date),
+      durationSeconds: longestActivity.durationSeconds,
+      calories: parseNumber(longestActivity.row['Calories']),
+    };
+  }
+
+  // Build highest calorie summary
+  let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
+  if (highestCalorie && highestCalorie.calories > 0) {
+    highestCalorieSummary = {
+      title: String(highestCalorie.row['Title'] || 'Unknown activity'),
+      date: formatDateDisplay(highestCalorie.date),
+      calories: highestCalorie.calories,
+      durationSeconds: highestCalorie.durationSeconds,
+    };
   }
 
   return {
@@ -482,24 +503,8 @@ function computeMetrics(rows: any[]): Metrics {
     favoriteActivity,
     mostActiveMonth,
     longestStreak,
-    longestActivity:
-      longestActivity && longestActivity.durationSeconds > 0
-        ? {
-            title: String(longestActivity.row['Title'] || 'Unknown activity'),
-            date: formatDateDisplay(longestActivity.date),
-            durationSeconds: longestActivity.durationSeconds,
-            calories: parseNumber(longestActivity.row['Calories']),
-          }
-        : undefined,
-    highestCalorie:
-      highestCalorie && highestCalorie.calories > 0
-        ? {
-            title: String(highestCalorie.row['Title'] || 'Unknown activity'),
-            date: formatDateDisplay(highestCalorie.date),
-            calories: highestCalorie.calories,
-            durationSeconds: highestCalorie.durationSeconds,
-          }
-        : undefined,
+    longestActivity: longestActivitySummary,
+    highestCalorie: highestCalorieSummary,
     totalAscent: totalAscent || undefined,
     maxElevation: maxElevation || undefined,
     avgDistanceMi,
