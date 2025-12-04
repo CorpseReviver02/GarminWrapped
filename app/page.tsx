@@ -250,22 +250,9 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSeconds = 0;
   let swimSessions = 0;
 
-  let longestActivityDetail:
-    | {
-        row: any;
-        durationSeconds: number;
-        date: Date | null;
-      }
-    | null = null;
-
-  let highestCalorieDetail:
-    | {
-        row: any;
-        calories: number;
-        date: Date | null;
-        durationSeconds: number;
-      }
-    | null = null;
+  // Internal accumulators – we don't need strict typing here
+  let longestActivityDetail: any = null;
+  let highestCalorieDetail: any = null;
 
   const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
