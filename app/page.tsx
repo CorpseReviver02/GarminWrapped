@@ -250,18 +250,22 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSeconds = 0;
   let swimSessions = 0;
 
-  let longestActivity: {
-    row: any;
-    durationSeconds: number;
-    date: Date | null;
-  } | null = null;
+  let longestActivityDetail:
+    | {
+        row: any;
+        durationSeconds: number;
+        date: Date | null;
+      }
+    | null = null;
 
-  let highestCalorie: {
-    row: any;
-    calories: number;
-    date: Date | null;
-    durationSeconds: number;
-  } | null = null;
+  let highestCalorieDetail:
+    | {
+        row: any;
+        calories: number;
+        date: Date | null;
+        durationSeconds: number;
+      }
+    | null = null;
 
   const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
@@ -334,16 +338,17 @@ function computeMetrics(rows: any[]): Metrics {
     const durationSeconds = timeSeconds;
     if (
       durationSeconds > 0 &&
-      (!longestActivity || durationSeconds > longestActivity.durationSeconds)
+      (!longestActivityDetail ||
+        durationSeconds > longestActivityDetail.durationSeconds)
     ) {
-      longestActivity = { row, durationSeconds, date };
+      longestActivityDetail = { row, durationSeconds, date };
     }
 
     if (
       calories > 0 &&
-      (!highestCalorie || calories > highestCalorie.calories)
+      (!highestCalorieDetail || calories > highestCalorieDetail.calories)
     ) {
-      highestCalorie = {
+      highestCalorieDetail = {
         row,
         calories,
         date,
@@ -469,26 +474,33 @@ function computeMetrics(rows: any[]): Metrics {
     }));
     arr.sort((a, b) => b.count - a.count);
     topActivityTypes = arr.slice(0, 3);
+  }
 
   // Build longest activity summary
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  if (longestActivity && longestActivity.durationSeconds > 0) {
+  if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
     longestActivitySummary = {
-      title: String(longestActivity.row['Title'] || 'Unknown activity'),
-      date: formatDateDisplay(longestActivity.date),
-      durationSeconds: longestActivity.durationSeconds,
-      calories: parseNumber(longestActivity.row['Calories']),
+      title: String(
+        longestActivityDetail.row['Title'] || 'Unknown activity',
+      ),
+      date: formatDateDisplay(longestActivityDetail.date),
+      durationSeconds: longestActivityDetail.durationSeconds,
+      calories: parseNumber(
+        longestActivityDetail.row['Calories'],
+      ),
     };
   }
 
   // Build highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
-  if (highestCalorie && highestCalorie.calories > 0) {
+  if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
     highestCalorieSummary = {
-      title: String(highestCalorie.row['Title'] || 'Unknown activity'),
-      date: formatDateDisplay(highestCalorie.date),
-      calories: highestCalorie.calories,
-      durationSeconds: highestCalorie.durationSeconds,
+      title: String(
+        highestCalorieDetail.row['Title'] || 'Unknown activity',
+      ),
+      date: formatDateDisplay(highestCalorieDetail.date),
+      calories: highestCalorieDetail.calories,
+      durationSeconds: highestCalorieDetail.durationSeconds,
     };
   }
 
@@ -951,7 +963,9 @@ export default function Home() {
                     <div>
                       <p className="text-zinc-400 text-xs">Duration</p>
                       <p className="text-zinc-100 font-medium">
-                        {formatDurationHMS(longestActivity.durationSeconds)}
+                        {formatDurationHMS(
+                          longestActivity.durationSeconds,
+                        )}
                       </p>
                     </div>
                     <div>
@@ -995,7 +1009,9 @@ export default function Home() {
                       <p className="text-zinc-400 text-xs">Duration</p>
                       <p className="text-zinc-100 font-medium">
                         {highestCal.durationSeconds
-                          ? formatDurationHMS(highestCal.durationSeconds)
+                          ? formatDurationHMS(
+                              highestCal.durationSeconds,
+                            )
                           : '--'}
                       </p>
                     </div>
