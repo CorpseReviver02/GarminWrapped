@@ -2,7 +2,6 @@
 
 import React, { useState, useRef } from 'react';
 import Papa from 'papaparse';
-// @ts-expect-error - html-to-image may not ship types
 import * as htmlToImage from 'html-to-image';
 import {
   Activity,
