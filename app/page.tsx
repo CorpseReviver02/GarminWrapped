@@ -106,6 +106,19 @@ type StatCardProps = {
   helper?: string;
 };
 
+type ActivityDetail = {
+  row: any;
+  durationSeconds: number;
+  date: Date | null;
+};
+
+type CalorieDetail = {
+  row: any;
+  calories: number;
+  date: Date | null;
+  durationSeconds: number;
+};
+
 const EARTH_CIRCUMFERENCE_MI = 24901;
 
 // ---------- helpers ----------
@@ -293,17 +306,8 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSessions = 0;
 
   // Internal accumulators
-  let longestActivityDetail: {
-    row: any;
-    durationSeconds: number;
-    date: Date | null;
-  } | null = null;
-  let highestCalorieDetail: {
-    row: any;
-    calories: number;
-    date: Date | null;
-    durationSeconds: number;
-  } | null = null;
+  let longestActivityDetail: ActivityDetail | null = null;
+  let highestCalorieDetail: CalorieDetail | null = null;
 
   const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
@@ -515,7 +519,15 @@ function computeMetrics(rows: any[]): Metrics {
   }
 
   // Build longest activity summary
-  let longestActivitySummary: Metrics['longestActivity'] | undefined;
+  let longestActivitySummary:
+    | {
+        title: string;
+        date: string;
+        durationSeconds: number;
+        calories?: number;
+      }
+    | undefined;
+
   if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
     longestActivitySummary = {
       title: String(
