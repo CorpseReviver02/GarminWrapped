@@ -13,6 +13,7 @@ import {
   Bike,
   Dumbbell,
   ArrowDownToLine,
+  TrendingUp,
 } from 'lucide-react';
 
 type AnyRow = { [key: string]: string };
