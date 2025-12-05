@@ -8,14 +8,14 @@ import {
   Flame,
   Footprints,
   Bike,
-  Dumbbell,
   MoonStar,
   Download,
   Upload,
   Watch,
-  BarChart3,
   Calendar,
   Zap,
+  Mountain,
+  Waves,
 } from 'lucide-react';
 
 type ActivityRow = { [key: string]: string };
@@ -45,6 +45,11 @@ interface TimeBreakdown {
   swimHours: number;
   strengthHours: number;
   otherHours: number;
+}
+
+interface ElevationMetrics {
+  totalFeet: number;
+  maxFeet: number;
 }
 
 interface LongActivitySummary {
@@ -89,6 +94,7 @@ interface Metrics {
   totalCalories: number;
   distance: DistanceBreakdown;
   time: TimeBreakdown;
+  elevation: ElevationMetrics;
   longestActivity?: LongActivitySummary;
   highestCalorie?: LongActivitySummary;
   streaks?: StreakSummary;
@@ -168,6 +174,37 @@ function getWeekKey(date: Date): string {
   })}`;
 }
 
+// pacing helpers
+function formatMinPer(mi: number): string {
+  const m = Math.floor(mi);
+  const s = Math.round((mi - m) * 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function runPace(distanceMiles: number, hours: number): string {
+  if (distanceMiles <= 0 || hours <= 0) return '—';
+  const totalMinutes = hours * 60;
+  const pace = totalMinutes / distanceMiles; // min/mi
+  return `${formatMinPer(pace)} /mi`;
+}
+
+function rideSpeed(distanceMiles: number, hours: number): string {
+  if (distanceMiles <= 0 || hours <= 0) return '—';
+  const mph = distanceMiles / hours;
+  return `${mph.toFixed(1)} mph`;
+}
+
+function swimPace100m(distanceMiles: number, hours: number): string {
+  if (distanceMiles <= 0 || hours <= 0) return '—';
+  const meters = distanceMiles * 1609.34;
+  if (meters <= 0) return '—';
+  const totalSeconds = hours * 3600;
+  const secPer100 = totalSeconds / (meters / 100);
+  const m = Math.floor(secPer100 / 60);
+  const s = Math.round(secPer100 % 60);
+  return `${m}:${s.toString().padStart(2, '0')} /100m`;
+}
+
 // ---------- Activity parsing + metrics ----------
 
 function parseActivityCsv(rows: ActivityRow[]): ActivityDetail[] {
@@ -245,6 +282,9 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
   let strengthSeconds = 0;
   let otherSeconds = 0;
 
+  let totalElevationFt = 0;
+  let maxElevationFt = 0;
+
   const byDaySeconds: Record<string, number> = {};
   const byWeekSeconds: Record<string, number> = {};
   const byWeekActivities: Record<string, number> = {};
@@ -284,6 +324,22 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
     } else {
       otherSeconds += d.durationSeconds;
     }
+
+    // elevation metrics (Garmin US exports are usually in feet)
+    const ascentFt =
+      parseNumber(d.row['Elevation Gain']) ||
+      parseNumber(d.row['Elev Gain']) ||
+      parseNumber(d.row['Total Ascent']) ||
+      parseNumber(d.row['Ascent']);
+
+    const maxFt =
+      parseNumber(d.row['Max Elevation']) ||
+      parseNumber(d.row['Maximum Elevation']) ||
+      parseNumber(d.row['Max Elev']) ||
+      0;
+
+    totalElevationFt += ascentFt;
+    if (maxFt > maxElevationFt) maxElevationFt = maxFt;
   }
 
   const time: TimeBreakdown = {
@@ -301,6 +357,11 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
     rideMiles,
     swimMiles,
     walkHikeMiles,
+  };
+
+  const elevation: ElevationMetrics = {
+    totalFeet: totalElevationFt,
+    maxFeet: maxElevationFt,
   };
 
   // Longest activity
@@ -407,6 +468,7 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
     totalCalories,
     distance,
     time,
+    elevation,
     longestActivity,
     highestCalorie,
     streaks,
@@ -680,33 +742,6 @@ export default function Home() {
   const combinedWalkMiles =
     stepsMiles > 0 ? stepsMiles : metrics?.distance.walkHikeMiles || 0;
 
-  const timeSegments =
-    metrics &&
-    [
-      {
-        label: 'Running',
-        hours: metrics.time.runHours,
-        color: 'bg-emerald-400',
-      },
-      {
-        label: 'Cycling',
-        hours: metrics.time.rideHours,
-        color: 'bg-cyan-400',
-      },
-      {
-        label: 'Swimming',
-        hours: metrics.time.swimHours,
-        color: 'bg-sky-400',
-      },
-      {
-        label: 'Strength',
-        hours: metrics.time.strengthHours,
-        color: 'bg-orange-400',
-      },
-    ];
-
-  const totalTimeForBars = metrics?.time.totalHours || 1;
-
   // ---------- UI ----------
 
   return (
@@ -867,144 +902,202 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-
-                {stepsMetrics && (
-                  <div className="relative mt-4 rounded-2xl border border-emerald-400/40 bg-gradient-to-r from-emerald-500/15 to-cyan-500/15 px-4 py-3 flex flex-wrap gap-3 items-center text-xs md:text-[13px]">
-                    <div className="flex items-center gap-2">
-                      <Footprints className="w-4 h-4 text-emerald-200" />
-                      <span className="text-[10px] md:text-[11px] uppercase tracking-[0.18em] text-emerald-200">
-                        Steps wrapped
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-5">
-                      <p>
-                        <span className="font-semibold">
-                          {stepsTotal.toLocaleString()}
-                        </span>{' '}
-                        steps
-                      </p>
-                      <p>
-                        ~
-                        <span className="font-semibold">
-                          {formatMiles(stepsMiles)}
-                        </span>{' '}
-                        on foot
-                      </p>
-                      <p className="text-slate-100">
-                        Best week:{' '}
-                        <span className="font-semibold">
-                          {stepsMetrics.bestWeekSteps.toLocaleString()} steps
-                        </span>{' '}
-                        ({stepsMetrics.bestWeekLabel})
-                      </p>
-                    </div>
-                  </div>
-                )}
               </section>
             )}
 
-            {/* DISTANCE + TIME ROW */}
+            {/* DISTANCE BREAKDOWN */}
             {metrics && (
-              <section className="grid md:grid-cols-[1.7fr,1.3fr] gap-4">
-                {/* Distance breakdown */}
+              <section className="rounded-3xl border border-slate-900 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Bike className="w-5 h-5 text-cyan-300" />
+                    <h3 className="text-sm font-semibold">
+                      Distance breakdown
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
+                    {formatMiles(totalMiles)} total
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                    <p className="text-[10px] text-slate-400 uppercase mb-1">
+                      Running
+                    </p>
+                    <p className="text-base font-semibold">
+                      {formatMiles(metrics.distance.runMiles)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                    <p className="text-[10px] text-slate-400 uppercase mb-1">
+                      Cycling
+                    </p>
+                    <p className="text-base font-semibold">
+                      {formatMiles(metrics.distance.rideMiles)}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                    <p className="text-[10px] text-slate-400 uppercase mb-1">
+                      Swimming*
+                    </p>
+                    <p className="text-base font-semibold">
+                      {formatMiles(metrics.distance.swimMiles)}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      *Meters converted to miles
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                    <p className="text-[10px] text-slate-400 uppercase mb-1">
+                      Walking / hiking
+                    </p>
+                    <p className="text-base font-semibold">
+                      {formatMiles(combinedWalkMiles)}
+                    </p>
+                    {stepsMetrics && (
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        From steps export
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* TIME BY SPORT + VERTICAL GAINS */}
+            {metrics && (
+              <section className="grid lg:grid-cols-[2fr,1.1fr] gap-4">
+                {/* time by sport cards */}
                 <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <Bike className="w-5 h-5 text-cyan-300" />
-                      <h3 className="text-sm font-semibold">
-                        Distance breakdown
-                      </h3>
+                      <Activity className="w-5 h-5 text-emerald-300" />
+                      <h3 className="text-sm font-semibold">Time by sport</h3>
                     </div>
                     <p className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
-                      {formatMiles(totalMiles)} total
+                      Distance • Time • Pace
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
-                      <p className="text-[10px] text-slate-400 uppercase mb-1">
-                        Running
-                      </p>
-                      <p className="text-base font-semibold">
+                  <div className="grid md:grid-cols-3 gap-3 text-sm">
+                    {/* Running */}
+                    <div className="rounded-2xl bg-gradient-to-br from-emerald-500/25 via-emerald-500/10 to-slate-950 border border-emerald-400/60 px-4 py-3 shadow-[0_0_25px_rgba(16,185,129,0.25)]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Footprints className="w-4 h-4 text-emerald-200" />
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-100">
+                          Running
+                        </p>
+                      </div>
+                      <p className="text-lg font-semibold leading-none mb-1">
                         {formatMiles(metrics.distance.runMiles)}
                       </p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
-                      <p className="text-[10px] text-slate-400 uppercase mb-1">
-                        Cycling
+                      <p className="text-[11px] text-emerald-50 mb-1">
+                        Distance
                       </p>
-                      <p className="text-base font-semibold">
+                      <p className="text-sm">
+                        {formatHours(metrics.time.runHours)}
+                      </p>
+                      <p className="text-[11px] text-emerald-50 mt-0.5">
+                        {runPace(
+                          metrics.distance.runMiles,
+                          metrics.time.runHours,
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Cycling */}
+                    <div className="rounded-2xl bg-gradient-to-br from-cyan-500/25 via-cyan-500/10 to-slate-950 border border-cyan-400/60 px-4 py-3 shadow-[0_0_25px_rgba(34,211,238,0.25)]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Bike className="w-4 h-4 text-cyan-200" />
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-cyan-100">
+                          Cycling
+                        </p>
+                      </div>
+                      <p className="text-lg font-semibold leading-none mb-1">
                         {formatMiles(metrics.distance.rideMiles)}
                       </p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
-                      <p className="text-[10px] text-slate-400 uppercase mb-1">
-                        Swimming*
+                      <p className="text-[11px] text-cyan-50 mb-1">
+                        Distance
                       </p>
-                      <p className="text-base font-semibold">
+                      <p className="text-sm">
+                        {formatHours(metrics.time.rideHours)}
+                      </p>
+                      <p className="text-[11px] text-cyan-50 mt-0.5">
+                        {rideSpeed(
+                          metrics.distance.rideMiles,
+                          metrics.time.rideHours,
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Swimming */}
+                    <div className="rounded-2xl bg-gradient-to-br from-indigo-500/25 via-indigo-500/10 to-slate-950 border border-indigo-400/60 px-4 py-3 shadow-[0_0_25px_rgba(129,140,248,0.25)]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Waves className="w-4 h-4 text-indigo-200" />
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-100">
+                          Swimming
+                        </p>
+                      </div>
+                      <p className="text-lg font-semibold leading-none mb-1">
                         {formatMiles(metrics.distance.swimMiles)}
                       </p>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        *Meters converted to miles
+                      <p className="text-[11px] text-indigo-50 mb-1">
+                        Distance
                       </p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
-                      <p className="text-[10px] text-slate-400 uppercase mb-1">
-                        Walking / hiking
+                      <p className="text-sm">
+                        {formatHours(metrics.time.swimHours)}
                       </p>
-                      <p className="text-base font-semibold">
-                        {formatMiles(combinedWalkMiles)}
+                      <p className="text-[11px] text-indigo-50 mt-0.5">
+                        {swimPace100m(
+                          metrics.distance.swimMiles,
+                          metrics.time.swimHours,
+                        )}
                       </p>
-                      {stepsMetrics && (
-                        <p className="text-[10px] text-slate-500 mt-1">
-                          From steps export
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Time by sport */}
-                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <BarChart3 className="w-5 h-5 text-emerald-300" />
-                      <h3 className="text-sm font-semibold">Time by sport</h3>
+                {/* Vertical gains */}
+                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-fuchsia-500/20 via-slate-950 to-amber-500/20 p-5 md:p-6 relative overflow-hidden">
+                  <div className="absolute -right-10 -top-10 w-28 h-28 rounded-full bg-fuchsia-500/35 blur-3xl" />
+                  <div className="absolute -left-12 bottom-0 w-32 h-32 rounded-full bg-amber-400/25 blur-3xl" />
+                  <div className="relative">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Mountain className="w-5 h-5 text-amber-200" />
+                        <h3 className="text-sm font-semibold">
+                          Vertical gains
+                        </h3>
+                      </div>
+                      <p className="text-[11px] text-amber-100/90 uppercase tracking-[0.16em]">
+                        Elevation
+                      </p>
                     </div>
-                    <p className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
-                      {formatHours(metrics.time.totalHours)}
-                    </p>
-                  </div>
 
-                  <div className="space-y-3 text-xs">
-                    {timeSegments &&
-                      timeSegments.map((seg) => {
-                        const pct =
-                          seg.hours <= 0
-                            ? 0
-                            : Math.min(
-                                100,
-                                (seg.hours / totalTimeForBars) * 100,
-                              );
-                        return (
-                          <div key={seg.label} className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-slate-300">
-                                {seg.label}
-                              </span>
-                              <span className="font-medium">
-                                {formatHours(seg.hours)}
-                              </span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                              <div
-                                className={`h-full ${seg.color}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="space-y-3 text-sm">
+                      <div className="rounded-2xl bg-slate-950/80 border border-amber-400/40 px-4 py-3">
+                        <p className="text-[10px] uppercase text-amber-100 mb-1">
+                          Total elevation climbed
+                        </p>
+                        <p className="text-xl font-semibold leading-none">
+                          {metrics.elevation.totalFeet.toLocaleString()} ft
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-950/80 border border-fuchsia-400/40 px-4 py-3">
+                        <p className="text-[10px] uppercase text-fuchsia-100 mb-1">
+                          Highest point reached
+                        </p>
+                        <p className="text-xl font-semibold leading-none">
+                          {metrics.elevation.maxFeet.toLocaleString()} ft
+                        </p>
+                        <p className="text-[11px] text-slate-300 mt-1">
+                          That&apos;s about{' '}
+                          {(metrics.elevation.maxFeet / 5280).toFixed(1)} miles
+                          above sea level.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>
