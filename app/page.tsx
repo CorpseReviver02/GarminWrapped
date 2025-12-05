@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Papa from 'papaparse';
+// @ts-expect-error - html-to-image may not ship types
+import * as htmlToImage from 'html-to-image';
 import {
   Activity,
   Flame,
@@ -68,6 +70,27 @@ type Metrics = {
   swimMeters?: number;
   swimSeconds?: number;
   swimSessions?: number;
+};
+
+type SleepMetrics = {
+  weeks: number;
+  avgScore: number;
+  avgDurationMinutes: number;
+  bestScoreWeek: {
+    label: string;
+    score: number;
+    durationMinutes: number;
+  } | null;
+  worstScoreWeek: {
+    label: string;
+    score: number;
+    durationMinutes: number;
+  } | null;
+  longestSleepWeek: {
+    label: string;
+    durationMinutes: number;
+    score: number;
+  } | null;
 };
 
 type StatCardProps = {
@@ -174,6 +197,19 @@ function formatSwimPacePer100m(
   return `${min}:${sec.toString().padStart(2, '0')}/100m`;
 }
 
+function parseSleepDurationToMinutes(value: any): number {
+  if (!value) return 0;
+  const s = String(value).trim();
+  if (!s) return 0;
+
+  const match = s.match(/(?:(\d+)h)?\s*(?:(\d+)min)?/i);
+  if (!match) return 0;
+
+  const hours = match[1] ? parseInt(match[1], 10) : 0;
+  const mins = match[2] ? parseInt(match[2], 10) : 0;
+  return hours * 60 + mins;
+}
+
 const MONTH_NAMES = [
   'January',
   'February',
@@ -212,7 +248,7 @@ function distanceMilesFromRow(row: any): number {
   return raw;
 }
 
-// ---------- metric computation from CSV ----------
+// ---------- metric computation from activity CSV ----------
 
 function computeMetrics(rows: any[]): Metrics {
   let totalDistanceMi = 0;
@@ -250,7 +286,7 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSeconds = 0;
   let swimSessions = 0;
 
-  // Internal accumulators – we don't need strict typing here
+  // Internal accumulators – keep these loose so TS doesn’t complain
   let longestActivityDetail: any = null;
   let highestCalorieDetail: any = null;
 
@@ -472,9 +508,7 @@ function computeMetrics(rows: any[]): Metrics {
       ),
       date: formatDateDisplay(longestActivityDetail.date),
       durationSeconds: longestActivityDetail.durationSeconds,
-      calories: parseNumber(
-        longestActivityDetail.row['Calories'],
-      ),
+      calories: parseNumber(longestActivityDetail.row['Calories']),
     };
   }
 
@@ -524,6 +558,56 @@ function computeMetrics(rows: any[]): Metrics {
   };
 }
 
+// ---------- metric computation from sleep CSV ----------
+
+function computeSleepMetrics(rows: any[]): SleepMetrics {
+  let totalScore = 0;
+  let totalDurationMinutes = 0;
+  let count = 0;
+
+  let bestScoreWeek: SleepMetrics['bestScoreWeek'] = null;
+  let worstScoreWeek: SleepMetrics['worstScoreWeek'] = null;
+  let longestSleepWeek: SleepMetrics['longestSleepWeek'] = null;
+
+  rows.forEach((row) => {
+    const score = parseNumber(row['Avg Score']);
+    const label = String(row['Date'] || '').trim();
+    const durationMinutes = parseSleepDurationToMinutes(
+      row['Avg Duration'],
+    );
+
+    if (!score && !durationMinutes && !label) return;
+
+    totalScore += score;
+    totalDurationMinutes += durationMinutes;
+    count += 1;
+
+    if (!bestScoreWeek || score > bestScoreWeek.score) {
+      bestScoreWeek = { label, score, durationMinutes };
+    }
+
+    if (!worstScoreWeek || score < worstScoreWeek.score) {
+      worstScoreWeek = { label, score, durationMinutes };
+    }
+
+    if (
+      !longestSleepWeek ||
+      durationMinutes > longestSleepWeek.durationMinutes
+    ) {
+      longestSleepWeek = { label, durationMinutes, score };
+    }
+  });
+
+  return {
+    weeks: count,
+    avgScore: count ? totalScore / count : 0,
+    avgDurationMinutes: count ? totalDurationMinutes / count : 0,
+    bestScoreWeek,
+    worstScoreWeek,
+    longestSleepWeek,
+  };
+}
+
 // ---------- UI components ----------
 
 function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
@@ -546,6 +630,13 @@ function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
 export default function Home() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [sleepMetrics, setSleepMetrics] = useState<SleepMetrics | null>(
+    null,
+  );
+  const [sleepError, setSleepError] = useState<string | null>(null);
+
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -579,6 +670,67 @@ export default function Home() {
         setMetrics(null);
       },
     });
+  };
+
+  const handleSleepFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSleepError(null);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const data = (results.data as any[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
+          if (!data.length) {
+            setSleepError('Could not find any sleep rows in that CSV.');
+            setSleepMetrics(null);
+            return;
+          }
+          const m = computeSleepMetrics(data);
+          setSleepMetrics(m);
+        } catch (err) {
+          console.error(err);
+          setSleepError('Sorry, something went wrong reading that CSV.');
+          setSleepMetrics(null);
+        }
+      },
+      error: (err) => {
+        console.error(err);
+        setSleepError('Failed to parse sleep CSV file.');
+        setSleepMetrics(null);
+      },
+    });
+  };
+
+  const handleDownloadImage = async () => {
+    if (!pageRef.current) return;
+
+    const node = pageRef.current;
+
+    try {
+      const dataUrl = await htmlToImage.toPng(node, {
+        cacheBust: true,
+        width: node.scrollWidth,
+        height: node.scrollHeight,
+        backgroundColor: '#000000',
+      });
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = 'garmin-wrapped.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to generate image', err);
+      alert('Sorry, something went wrong generating the image.');
+    }
   };
 
   const m = metrics;
@@ -683,8 +835,36 @@ export default function Home() {
       ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters)
       : '--';
 
+  // Sleep strings
+  const s = sleepMetrics;
+  const avgSleepScoreStr = s
+    ? s.avgScore.toFixed(1)
+    : '--';
+  const avgSleepDurationStr = s
+    ? (() => {
+        const mins = s.avgDurationMinutes;
+        const h = Math.floor(mins / 60);
+        const mR = Math.round(mins % 60);
+        return `${h}h ${mR}m`;
+      })()
+    : '--';
+
+  const sleepGrade =
+    s && s.avgScore
+      ? s.avgScore >= 85
+        ? 'A'
+        : s.avgScore >= 80
+        ? 'B+'
+        : s.avgScore >= 75
+        ? 'B'
+        : 'C+'
+      : '--';
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+    <div
+      ref={pageRef}
+      className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white"
+    >
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* Top header + upload */}
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -696,6 +876,7 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col items-start sm:items-end gap-2">
+            {/* Activities upload */}
             <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-4 h-4" />
               <span>Upload Garmin activities CSV</span>
@@ -706,6 +887,30 @@ export default function Home() {
                 onChange={handleFileChange}
               />
             </label>
+
+            {/* Sleep upload */}
+            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
+              <Upload className="w-3 h-3" />
+              <span>Upload Sleep CSV (optional)</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleSleepFileChange}
+              />
+            </label>
+
+            {/* Download button */}
+            {metrics && (
+              <button
+                type="button"
+                onClick={handleDownloadImage}
+                className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/80 border border-zinc-600 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
+              >
+                Download as image
+              </button>
+            )}
+
             {!metrics && (
               <p className="text-xs text-zinc-500 max-w-xs text-right">
                 Export your activities from Garmin Connect (&quot;All
@@ -715,6 +920,11 @@ export default function Home() {
             {error && (
               <p className="text-xs text-red-400 max-w-xs text-right">
                 {error}
+              </p>
+            )}
+            {sleepError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {sleepError}
               </p>
             )}
           </div>
@@ -1118,6 +1328,78 @@ export default function Home() {
               </section>
             )}
           </div>
+        )}
+
+        {/* Sleep Wrapped section (independent of activities) */}
+        {sleepMetrics && (
+          <section className="mt-8 bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-400/50">
+                  <HeartPulse className="w-5 h-5 text-indigo-200" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-indigo-200">
+                    Sleep Wrapped
+                  </p>
+                  <p className="text-sm text-zinc-300">
+                    {sleepMetrics.weeks} weeks of tracked sleep
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 text-sm">
+              <div>
+                <p className="text-zinc-400 text-xs">Average sleep score</p>
+                <p className="text-2xl font-semibold">
+                  {avgSleepScoreStr}
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Roughly a solid{' '}
+                  <span className="font-semibold">{sleepGrade}</span>.
+                </p>
+              </div>
+
+              <div>
+                <p className="text-zinc-400 text-xs">
+                  Average nightly duration
+                </p>
+                <p className="text-2xl font-semibold">
+                  {avgSleepDurationStr}
+                </p>
+              </div>
+
+              {sleepMetrics.bestScoreWeek && (
+                <div>
+                  <p className="text-zinc-400 text-xs">Best week</p>
+                  <p className="text-sm text-zinc-100 font-semibold">
+                    {sleepMetrics.bestScoreWeek.label}
+                  </p>
+                  <p className="text-sm text-zinc-300">
+                    Score {sleepMetrics.bestScoreWeek.score} ·{' '}
+                    {(() => {
+                      const mins =
+                        sleepMetrics.bestScoreWeek!.durationMinutes;
+                      const h = Math.floor(mins / 60);
+                      const mR = Math.round(mins % 60);
+                      return `${h}h ${mR}m avg`;
+                    })()}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {sleepMetrics.worstScoreWeek && (
+              <div className="mt-4 text-xs text-zinc-400">
+                Toughest week:{' '}
+                <span className="text-zinc-200">
+                  {sleepMetrics.worstScoreWeek.label}
+                </span>{' '}
+                (score {sleepMetrics.worstScoreWeek.score}).
+              </div>
+            )}
+          </section>
         )}
 
         {/* Footer */}
