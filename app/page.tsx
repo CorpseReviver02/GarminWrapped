@@ -30,7 +30,7 @@ type Metrics = {
   bySport: {
     run: { miles: number; hours: number };
     bike: { miles: number; hours: number };
-    swim: { distance: number; hours: number }; // we keep this as raw distance units, usually meters
+    swim: { distance: number; hours: number };
     strength: { hours: number };
     other: { hours: number };
   };
@@ -94,7 +94,7 @@ type StepsMetrics = {
 function parseNumber(value: any): number {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number') return value;
-  const s = String(value).replace(',', '').trim();
+  const s = String(value).replace(/,/g, '').trim();
   if (!s) return 0;
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
@@ -106,7 +106,6 @@ function parseDurationToSeconds(raw: any): number {
   const s = String(raw).trim();
   if (!s) return 0;
 
-  // hh:mm:ss or mm:ss
   if (s.includes(':')) {
     const parts = s.split(':').map((p) => parseInt(p, 10) || 0);
     if (parts.length === 3) {
@@ -119,10 +118,8 @@ function parseDurationToSeconds(raw: any): number {
     }
   }
 
-  // plain seconds or minutes
   const n = parseFloat(s);
   if (!isNaN(n)) {
-    // heuristic: if > 10000 assume seconds, else could be minutes
     if (n > 10000) return n;
     return n * 60;
   }
@@ -137,21 +134,17 @@ function parseDate(raw: any): Date | null {
   const s = String(raw).trim();
   if (!s) return null;
 
-  // Try direct parse
   let d = new Date(s);
   if (!isNaN(d.getTime())) return d;
 
-  // Try common Garmin format: M/D/YYYY or D/M/YYYY
   const parts = s.split(/[\/\-]/);
   if (parts.length === 3) {
     const [p1, p2, p3] = parts.map((p) => parseInt(p, 10));
     if (!isNaN(p1) && !isNaN(p2) && !isNaN(p3)) {
-      // assume p3 is year
       if (p3 < 100) {
         const year = 2000 + p3;
         d = new Date(year, p1 - 1, p2);
       } else {
-        // assume MM/DD/YYYY
         d = new Date(p3, p1 - 1, p2);
       }
       if (!isNaN(d.getTime())) return d;
@@ -171,10 +164,9 @@ function formatDateDisplay(date: Date | null): string {
 }
 
 function weekKey(date: Date): string {
-  // Week starting Monday
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = d.getUTCDay(); // 0=Sun
-  const diff = (day === 0 ? -6 : 1) - day; // days to Monday
+  const day = d.getUTCDay();
+  const diff = (day === 0 ? -6 : 1) - day;
   d.setUTCDate(d.getUTCDate() + diff);
   const year = d.getUTCFullYear();
   const weekStartMonth = d.getUTCMonth();
@@ -201,6 +193,18 @@ function weekdayName(index: number): string {
   return days[index] || '';
 }
 
+function secondsToHms(totalSeconds: number): string {
+  const sec = Math.round(totalSeconds);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/* --------- ACTIVITY METRICS (unchanged logic) --------- */
+
 function computeActivityMetrics(rows: RawRow[]): Metrics {
   let totalActivities = 0;
   let totalDurationSeconds = 0;
@@ -220,19 +224,10 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
   let longestRide: any = null;
   let longestSwim: any = null;
 
-  const weekMap: Record<
-    string,
-    { seconds: number; activities: number }
-  > = {};
+  const weekMap: Record<string, { seconds: number; activities: number }> = {};
   const daySet: Set<string> = new Set();
-  const monthMap: Record<
-    string,
-    { seconds: number; activities: number }
-  > = {};
-  const weekdayMap: Record<
-    number,
-    { seconds: number; activities: number }
-  > = {};
+  const monthMap: Record<string, { seconds: number; activities: number }> = {};
+  const weekdayMap: Record<number, { seconds: number; activities: number }> = {};
 
   rows.forEach((row) => {
     const typeRaw =
@@ -261,20 +256,15 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
         row['Distance (m)']
     );
 
-    // Heuristic distance normalization:
-    // - For track/swim activities, assume meters and convert to miles
-    // - For everything else, assume miles (common for US exports)
     let distanceMiles = 0;
     if (
       type.includes('track') ||
       type.includes('swim') ||
       type.includes('pool')
     ) {
-      // meters → miles
       const meters = rawDistance;
       distanceMiles = meters / 1609.34;
     } else {
-      // assume miles (if CSV is in km, user can adjust / convert beforehand)
       distanceMiles = rawDistance;
     }
 
@@ -337,7 +327,7 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
         };
       }
     } else if (sport === 'swim') {
-      bySport.swim.distance += rawDistance; // keep swim raw distance (likely meters)
+      bySport.swim.distance += rawDistance;
       bySport.swim.hours += hours;
       if (!longestSwim || rawDistance > longestSwim.distance) {
         longestSwim = {
@@ -380,7 +370,6 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
     }
   });
 
-  // Busiest week
   let busiestWeek: Metrics['busiestWeek'] | undefined;
   let maxWeekSeconds = 0;
   Object.entries(weekMap).forEach(([key, val]) => {
@@ -394,7 +383,6 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
     }
   });
 
-  // Longest streak of consecutive days
   let longestStreak:
     | {
         length: number;
@@ -445,7 +433,6 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
     };
   }
 
-  // Best month
   let bestMonth: Metrics['bestMonth'] | undefined;
   let maxMonthSeconds = 0;
   Object.entries(monthMap).forEach(([key, val]) => {
@@ -463,7 +450,6 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
     }
   });
 
-  // Grind day
   let grindDay: Metrics['grindDay'] | undefined;
   let maxDayActivities = 0;
   Object.entries(weekdayMap).forEach(([weekdayStr, val]) => {
@@ -519,46 +505,97 @@ function computeActivityMetrics(rows: RawRow[]): Metrics {
   };
 }
 
-function secondsToHms(totalSeconds: number): string {
-  const sec = Math.round(totalSeconds);
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
+/* --------- SLEEP METRICS (more robust, auto-detect headers) --------- */
 
 function computeSleepMetrics(rows: RawRow[]): SleepMetrics {
+  if (!rows || rows.length === 0) {
+    return {
+      nights: 0,
+      avgSleepHours: 0,
+      totalSleepHours: 0,
+    };
+  }
+
+  const sample = rows.find((r) => r && Object.keys(r).length > 0) || rows[0];
+  const keys = Object.keys(sample);
+
+  const durationField =
+    keys.find((k) => {
+      const l = k.toLowerCase();
+      return (
+        l.includes('sleep') &&
+        (l.includes('time') ||
+          l.includes('dur') ||
+          l.includes('minutes') ||
+          l.includes('mins') ||
+          l.includes('min') ||
+          l.includes('hours') ||
+          l.includes('hrs'))
+      );
+    }) ||
+    keys.find((k) =>
+      ['total sleep time', 'duration', 'minutes asleep', 'sleep duration'].includes(
+        k
+      )
+    ) ||
+    '';
+
+  const dateField =
+    keys.find((k) => k.toLowerCase().includes('date')) ||
+    keys.find((k) => k.toLowerCase().includes('day')) ||
+    keys.find((k) => k.toLowerCase().includes('start')) ||
+    '';
+
   let nights = 0;
   let totalMinutes = 0;
-
   let best: { date: Date | null; minutes: number } | null = null;
 
   rows.forEach((row) => {
-    const date =
-      parseDate(row['Date']) ||
-      parseDate(row['Start']) ||
-      parseDate(row['Sleep Date']) ||
-      null;
+    const rawDur = durationField ? row[durationField] : null;
+    let minutes = 0;
 
-    const durationMinutesRaw =
-      parseDurationToSeconds(row['Total Sleep Time']) / 60 ||
-      parseDurationToSeconds(row['Duration']) / 60 ||
-      parseNumber(row['Minutes Asleep']) ||
-      0;
+    if (rawDur != null) {
+      const s = String(rawDur).trim();
+      if (s) {
+        if (s.includes(':')) {
+          const secs = parseDurationToSeconds(s);
+          minutes = secs / 60;
+        } else {
+          const n = parseNumber(s);
+          if (n > 0) {
+            if (n > 24) {
+              // assume minutes
+              minutes = n;
+            } else {
+              // assume hours
+              minutes = n * 60;
+            }
+          }
+        }
+      }
+    }
 
-    if (durationMinutesRaw <= 0) return;
+    if (minutes <= 0) return;
+
+    const date = dateField ? parseDate(row[dateField]) : null;
 
     nights += 1;
-    totalMinutes += durationMinutesRaw;
+    totalMinutes += minutes;
 
-    if (!best || durationMinutesRaw > best.minutes) {
-      best = { date, minutes: durationMinutesRaw };
+    if (!best || minutes > best.minutes) {
+      best = { date, minutes };
     }
   });
 
-  const avgSleepHours = nights > 0 ? totalMinutes / nights / 60 : 0;
+  if (nights === 0 || totalMinutes === 0) {
+    return {
+      nights: 0,
+      avgSleepHours: 0,
+      totalSleepHours: 0,
+    };
+  }
+
+  const avgSleepHours = totalMinutes / nights / 60;
   const totalSleepHours = totalMinutes / 60;
 
   let bestNight: SleepMetrics['bestNight'] | undefined;
@@ -577,29 +614,43 @@ function computeSleepMetrics(rows: RawRow[]): SleepMetrics {
   };
 }
 
+/* --------- STEPS METRICS (auto-detect headers) --------- */
+
 function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
+  if (!rows || rows.length === 0) {
+    return {
+      weeks: 0,
+      totalSteps: 0,
+      avgStepsPerDay: 0,
+    };
+  }
+
+  const sample = rows.find((r) => r && Object.keys(r).length > 0) || rows[0];
+  const keys = Object.keys(sample);
+
+  const stepsField =
+    keys.find((k) => k.toLowerCase().includes('step')) || 'Steps';
+
+  const daysField =
+    keys.find((k) => k.toLowerCase().includes('day')) || '';
+
+  const labelField =
+    keys.find((k) => k.toLowerCase().includes('week')) ||
+    keys.find((k) => k.toLowerCase().includes('date')) ||
+    keys.find((k) => k.toLowerCase().includes('start')) ||
+    '';
+
   let weeks = 0;
   let totalSteps = 0;
   let totalDays = 0;
   let bestWeek: StepsMetrics['bestWeek'] | undefined;
 
   rows.forEach((row) => {
-    const steps = parseNumber(
-      row['Steps'] ??
-        row['Total Steps'] ??
-        row['Total steps'] ??
-        row['Weekly Steps']
-    );
+    const steps = parseNumber(stepsField ? row[stepsField] : undefined);
     if (!steps) return;
 
-    const label =
-      (row['Week'] ??
-        row['Label'] ??
-        row['Start'] ??
-        row['Date'] ??
-        '') + '';
-
-    const daysInWeek = parseNumber(row['Days']) || 7;
+    const daysInWeek = daysField ? parseNumber(row[daysField]) || 7 : 7;
+    const label = labelField ? String(row[labelField] ?? '') : '';
 
     weeks += 1;
     totalSteps += steps;
@@ -613,6 +664,14 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     }
   });
 
+  if (weeks === 0 || totalSteps === 0) {
+    return {
+      weeks: 0,
+      totalSteps: 0,
+      avgStepsPerDay: 0,
+    };
+  }
+
   const days = totalDays || weeks * 7 || 1;
   const avgStepsPerDay = totalSteps / days;
 
@@ -623,6 +682,8 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     bestWeek,
   };
 }
+
+/* --------- Small helpers for display --------- */
 
 function formatNumber(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -646,6 +707,8 @@ function StatPill({
     </div>
   );
 }
+
+/* --------- MAIN COMPONENT --------- */
 
 export default function Home() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -817,13 +880,20 @@ export default function Home() {
       {/* Filenames / error */}
       <div className="w-full max-w-5xl px-4 text-xs text-slate-300 space-y-1">
         {activitiesFileName && (
-          <div>Activities: <span className="text-emerald-300">{activitiesFileName}</span></div>
+          <div>
+            Activities:{' '}
+            <span className="text-emerald-300">{activitiesFileName}</span>
+          </div>
         )}
         {stepsFileName && (
-          <div>Steps: <span className="text-blue-300">{stepsFileName}</span></div>
+          <div>
+            Steps: <span className="text-blue-300">{stepsFileName}</span>
+          </div>
         )}
         {sleepFileName && (
-          <div>Sleep: <span className="text-indigo-300">{sleepFileName}</span></div>
+          <div>
+            Sleep: <span className="text-indigo-300">{sleepFileName}</span>
+          </div>
         )}
         {error && <div className="text-red-400 mt-1">{error}</div>}
       </div>
@@ -832,11 +902,13 @@ export default function Home() {
         <main className="flex-1 flex items-center justify-center w-full max-w-5xl px-4 pt-8 text-center">
           <div className="max-w-lg">
             <p className="text-slate-300 mb-4">
-              Start by uploading your <span className="font-semibold">Activities CSV</span> from Garmin.  
-              Then add Steps and Sleep for the full “Wrapped” experience.
+              Start by uploading your{' '}
+              <span className="font-semibold">Activities CSV</span> from Garmin. Then
+              add Steps and Sleep for the full &quot;Wrapped&quot; experience.
             </p>
             <p className="text-slate-500 text-sm">
-              Tip: Use the standard Garmin export for activities. For steps and sleep, weekly or monthly CSVs work fine.
+              Tip: Use the standard Garmin export for activities. For steps and sleep,
+              weekly or monthly CSVs work fine.
             </p>
           </div>
         </main>
@@ -884,7 +956,7 @@ export default function Home() {
                     label="Distance travelled"
                     value={`${formatNumber1(metrics.totalDistanceMiles)} mi`}
                   />
-                  {stepsMetrics && (
+                  {stepsMetrics && stepsMetrics.totalSteps > 0 && (
                     <StatPill
                       label="Steps taken"
                       value={`${formatNumber(stepsMetrics.totalSteps)}`}
@@ -944,7 +1016,7 @@ export default function Home() {
                 </h3>
                 <div className="text-2xl font-semibold mb-4">Just a quick walk…</div>
 
-                {stepsMetrics ? (
+                {stepsMetrics && stepsMetrics.totalSteps > 0 ? (
                   <>
                     <div className="bg-black/30 border border-white/20 rounded-2xl p-4 mb-4">
                       <div className="text-xs text-white/70 uppercase tracking-wide mb-1">
@@ -1030,7 +1102,12 @@ export default function Home() {
                     </div>
                     <div className="bg-black/30 rounded-xl p-3 border border-cyan-400/40 border-l-4">
                       <div className="text-white text-xl">
-                        ~{formatNumber(Math.round((metrics.totalDistanceMiles * 1609.34) / 5000))}
+                        ~
+                        {formatNumber(
+                          Math.round(
+                            (metrics.totalDistanceMiles * 1609.34) / 5000
+                          )
+                        )}
                       </div>
                       <div className="text-cyan-100 mt-1">5k races</div>
                     </div>
@@ -1410,7 +1487,7 @@ export default function Home() {
               SLEEP WRAPPED
             </div>
 
-            {sleepMetrics ? (
+            {sleepMetrics && sleepMetrics.totalSleepHours > 0 ? (
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
                   <div className="text-xs text-white/70 uppercase mb-1">
