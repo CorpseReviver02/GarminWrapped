@@ -206,10 +206,8 @@ function parseActivityCsv(rows: ActivityRow[]): ActivityDetail[] {
     const isTrackRun = lowerSport.includes('track running');
 
     if (isSwim || isTrackRun) {
-      // Garmin exports those distances in meters
       distanceMiles = toMilesFromMeters(rawDistance);
     } else {
-      // Assume this is already in miles (running, cycling, hiking, etc.)
       distanceMiles = rawDistance;
     }
 
@@ -315,7 +313,9 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
   if (longestDetail && longestDetail.durationSeconds > 0) {
     longestActivity = {
       title: String(
-        longestDetail.row['Title'] || longestDetail.row['Activity Type'] || 'Unknown activity',
+        longestDetail.row['Title'] ||
+          longestDetail.row['Activity Type'] ||
+          'Unknown activity',
       ),
       date: formatDateDisplay(longestDetail.date),
       duration: formatHours(longestDetail.durationSeconds / 3600),
@@ -332,7 +332,9 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
   if (highestDetail && highestDetail.calories > 0) {
     highestCalorie = {
       title: String(
-        highestDetail.row['Title'] || highestDetail.row['Activity Type'] || 'Unknown activity',
+        highestDetail.row['Title'] ||
+          highestDetail.row['Activity Type'] ||
+          'Unknown activity',
       ),
       date: formatDateDisplay(highestDetail.date),
       duration: formatHours(highestDetail.durationSeconds / 3600),
@@ -415,8 +417,7 @@ function computeActivityMetrics(rows: ActivityRow[]): Metrics | null {
 
 // Steps CSV sample:
 // ['', 'Actual']
-// ['1/4/2025', '60155']
-// ['1/11/2025', '44134'] ...
+// ['1/4/2025', '60155'] ...
 function computeStepsMetricsFromRows(rows: string[][]): StepsMetrics | null {
   const dataRows = rows.filter(
     (r) =>
@@ -454,8 +455,7 @@ function computeStepsMetricsFromRows(rows: string[][]): StepsMetrics | null {
   const avgStepsPerWeek = totalSteps / weeks;
   const avgStepsPerDay = totalSteps / (weeks * 7);
 
-  // Use your previous ratio ~1842 steps per mile (from your data)
-  const stepsPerMile = 1842.4;
+  const stepsPerMile = 1842.4; // calibrated from your data
   const approxMiles = totalSteps / stepsPerMile;
 
   return {
@@ -491,9 +491,7 @@ function parseDurationToMinutes(s: string | undefined): number {
 function computeSleepMetricsFromRows(rows: string[][]): SleepMetrics | null {
   if (!rows.length) return null;
 
-  // First row is header
   const dataRows = rows.slice(1).filter((r) => r.length >= 4 && r[0].trim());
-
   if (!dataRows.length) return null;
 
   let totalMinutes = 0;
@@ -512,7 +510,6 @@ function computeSleepMetricsFromRows(rows: string[][]): SleepMetrics | null {
     const durationStr = r[3] || '';
 
     const minutes = parseDurationToMinutes(durationStr);
-
     if (!minutes || !Number.isFinite(minutes)) continue;
 
     totalMinutes += minutes;
@@ -681,32 +678,59 @@ export default function Home() {
   const stepsMiles = stepsMetrics?.approxMiles || 0;
 
   const combinedWalkMiles =
-    stepsMiles > 0
-      ? stepsMiles
-      : metrics?.distance.walkHikeMiles || 0;
+    stepsMiles > 0 ? stepsMiles : metrics?.distance.walkHikeMiles || 0;
+
+  const timeSegments =
+    metrics &&
+    [
+      {
+        label: 'Running',
+        hours: metrics.time.runHours,
+        color: 'bg-emerald-400',
+      },
+      {
+        label: 'Cycling',
+        hours: metrics.time.rideHours,
+        color: 'bg-cyan-400',
+      },
+      {
+        label: 'Swimming',
+        hours: metrics.time.swimHours,
+        color: 'bg-sky-400',
+      },
+      {
+        label: 'Strength',
+        hours: metrics.time.strengthHours,
+        color: 'bg-orange-400',
+      },
+    ];
+
+  const totalTimeForBars = metrics?.time.totalHours || 1;
 
   // ---------- UI ----------
 
   return (
     <main className="min-h-screen bg-slate-950 text-white flex flex-col">
       {/* Top bar */}
-      <header className="border-b border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <header className="border-b border-slate-900 bg-black/60 backdrop-blur-md sticky top-0 z-20">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <Watch className="w-8 h-8 text-emerald-400" />
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center shadow-lg shadow-emerald-500/40">
+              <Watch className="w-5 h-5 text-slate-950" />
+            </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight">
+              <h1 className="text-lg font-semibold leading-tight tracking-tight">
                 Garmin Wrapped
               </h1>
-              <p className="text-xs text-slate-400">
-                Upload your Garmin exports & get a share-able training story.
+              <p className="text-[11px] text-slate-400">
+                Drop in your CSVs and get a shareable story of your year.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 items-center justify-end">
-            <label className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-slate-900 border border-slate-700 hover:border-emerald-400/70 cursor-pointer">
-              <Upload className="w-4 h-4 text-emerald-400" />
+          <div className="flex flex-wrap gap-2 items-center justify-end text-xs">
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-emerald-400/40 hover:border-emerald-300 cursor-pointer transition">
+              <Upload className="w-4 h-4 text-emerald-300" />
               <span>Activities CSV</span>
               <input
                 type="file"
@@ -716,8 +740,8 @@ export default function Home() {
               />
             </label>
 
-            <label className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-slate-900 border border-slate-700 hover:border-cyan-400/70 cursor-pointer">
-              <Footprints className="w-4 h-4 text-cyan-400" />
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-cyan-400/40 hover:border-cyan-300 cursor-pointer transition">
+              <Footprints className="w-4 h-4 text-cyan-300" />
               <span>Steps CSV</span>
               <input
                 type="file"
@@ -727,7 +751,7 @@ export default function Home() {
               />
             </label>
 
-            <label className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-slate-900 border border-slate-700 hover:border-indigo-400/70 cursor-pointer">
+            <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-indigo-400/40 hover:border-indigo-300 cursor-pointer transition">
               <MoonStar className="w-4 h-4 text-indigo-300" />
               <span>Sleep CSV</span>
               <input
@@ -740,10 +764,10 @@ export default function Home() {
 
             <button
               onClick={handleDownloadImage}
-              className="inline-flex items-center gap-2 px-3 py-2 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 font-semibold shadow-md hover:brightness-110 transition"
             >
               <Download className="w-4 h-4" />
-              Download as image
+              Save as image
             </button>
           </div>
         </div>
@@ -751,30 +775,36 @@ export default function Home() {
 
       {/* Main content */}
       <div className="flex-1">
-        <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="max-w-6xl mx-auto px-4 py-4 md:py-6">
           {error && (
-            <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            <div className="mb-4 rounded-2xl border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-100">
               {error}
             </div>
           )}
 
           {!metrics && !loading && (
-            <div className="mt-8 max-w-2xl mx-auto text-center border border-slate-800 rounded-3xl bg-gradient-to-b from-slate-900/60 to-slate-950 px-6 py-10">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 mb-4">
-                <Activity className="w-7 h-7 text-emerald-400" />
+            <div className="mt-6 max-w-3xl mx-auto rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 px-6 py-8 md:px-8 md:py-10 relative overflow-hidden">
+              <div className="absolute -right-16 -top-16 w-40 h-40 rounded-full bg-emerald-500/20 blur-3xl" />
+              <div className="absolute -left-10 bottom-0 w-36 h-36 rounded-full bg-cyan-500/20 blur-3xl" />
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/80 border border-slate-700/70 text-[11px] text-slate-300 mb-4">
+                  <Activity className="w-3 h-3 text-emerald-300" />
+                  <span>Step 1 · Upload your Garmin exports</span>
+                </div>
+                <h2 className="text-2xl md:text-3xl font-semibold mb-2">
+                  Turn raw CSVs into your own Garmin Wrapped
+                </h2>
+                <p className="text-sm text-slate-300 mb-2">
+                  Export activities from Garmin Connect as CSV, optionally add
+                  Steps and Sleep exports, and this page builds a mini
+                  Spotify-style recap you can screenshot or download.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Tip: Generate once for yourself, then share the link with
+                  friends—they can upload their own files without touching your
+                  data.
+                </p>
               </div>
-              <h2 className="text-2xl font-semibold mb-2">
-                Drop in your Garmin activities export
-              </h2>
-              <p className="text-sm text-slate-400 mb-4">
-                Export from Garmin Connect → Activities → Export All Activities
-                (CSV), then upload here. Add optional Steps and Sleep exports
-                for extra tiles.
-              </p>
-              <p className="text-xs text-slate-500">
-                Once loaded, you&apos;ll get a share-ready dashboard with your
-                total distance, training mix, biggest efforts, steps, and sleep.
-              </p>
             </div>
           )}
 
@@ -782,56 +812,56 @@ export default function Home() {
             ref={wrappedRef}
             className="mt-4 space-y-4"
           >
-            {/* Hero summary card */}
+            {/* HERO CARD */}
             {metrics && (
-              <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-6 md:p-8 relative overflow-hidden">
-                <div className="absolute -right-24 -top-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl" />
-                <div className="absolute -left-16 bottom-0 w-56 h-56 bg-cyan-500/10 rounded-full blur-3xl" />
+              <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-emerald-500/10 via-slate-950 to-cyan-500/10 px-5 py-5 md:px-8 md:py-6 relative overflow-hidden">
+                <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-emerald-400/25 blur-3xl" />
+                <div className="absolute -left-12 bottom-0 w-48 h-48 rounded-full bg-cyan-400/15 blur-3xl" />
 
-                <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.25em] text-emerald-300 mb-1">
-                      2025 • GARMIN WRAPPED
+                <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4 md:gap-6">
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-emerald-300">
+                      2025 • Garmin Wrapped
                     </p>
-                    <h2 className="text-3xl md:text-4xl font-semibold mb-2">
+                    <h2 className="text-2xl md:text-3xl font-semibold tracking-tight">
                       Your year in movement
                     </h2>
-                    <p className="text-sm text-slate-300 max-w-md">
+                    <p className="text-xs md:text-sm text-slate-200 max-w-md">
                       From lifts and Zwift to long runs and high-altitude
                       hiking, here&apos;s what your watch saw in 2025.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm relative z-10">
-                    <div className="rounded-2xl bg-slate-900/80 border border-slate-700/70 px-4 py-3">
-                      <p className="text-slate-400 text-[11px] uppercase">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs md:text-[13px]">
+                    <div className="rounded-2xl bg-slate-950/80 border border-slate-700/80 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Activities
                       </p>
-                      <p className="text-lg font-semibold">
+                      <p className="text-lg font-semibold leading-none">
                         {totalActivities.toLocaleString()}
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-900/80 border border-slate-700/70 px-4 py-3">
-                      <p className="text-slate-400 text-[11px] uppercase">
+                    <div className="rounded-2xl bg-slate-950/80 border border-slate-700/80 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Training time
                       </p>
-                      <p className="text-lg font-semibold">
+                      <p className="text-lg font-semibold leading-none">
                         {formatHours(totalHours)}
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-900/80 border border-slate-700/70 px-4 py-3">
-                      <p className="text-slate-400 text-[11px] uppercase">
+                    <div className="rounded-2xl bg-slate-950/80 border border-slate-700/80 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Distance traveled
                       </p>
-                      <p className="text-lg font-semibold">
+                      <p className="text-lg font-semibold leading-none">
                         {formatMiles(totalMiles)}
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-900/80 border border-slate-700/70 px-4 py-3">
-                      <p className="text-slate-400 text-[11px] uppercase">
-                        Calories
+                    <div className="rounded-2xl bg-slate-950/80 border border-slate-700/80 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
+                        Calories burned
                       </p>
-                      <p className="text-lg font-semibold">
+                      <p className="text-lg font-semibold leading-none">
                         {totalCalories.toLocaleString()} kcal
                       </p>
                     </div>
@@ -839,14 +869,14 @@ export default function Home() {
                 </div>
 
                 {stepsMetrics && (
-                  <div className="relative mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-500/5 px-4 py-3 flex flex-wrap items-center gap-4">
+                  <div className="relative mt-4 rounded-2xl border border-emerald-400/40 bg-gradient-to-r from-emerald-500/15 to-cyan-500/15 px-4 py-3 flex flex-wrap gap-3 items-center text-xs md:text-[13px]">
                     <div className="flex items-center gap-2">
-                      <Footprints className="w-4 h-4 text-emerald-300" />
-                      <p className="text-xs uppercase tracking-[0.18em] text-emerald-200">
+                      <Footprints className="w-4 h-4 text-emerald-200" />
+                      <span className="text-[10px] md:text-[11px] uppercase tracking-[0.18em] text-emerald-200">
                         Steps wrapped
-                      </p>
+                      </span>
                     </div>
-                    <div className="flex flex-wrap gap-4 text-sm">
+                    <div className="flex flex-wrap gap-5">
                       <p>
                         <span className="font-semibold">
                           {stepsTotal.toLocaleString()}
@@ -860,7 +890,7 @@ export default function Home() {
                         </span>{' '}
                         on foot
                       </p>
-                      <p className="text-slate-300">
+                      <p className="text-slate-100">
                         Best week:{' '}
                         <span className="font-semibold">
                           {stepsMetrics.bestWeekSteps.toLocaleString()} steps
@@ -873,35 +903,42 @@ export default function Home() {
               </section>
             )}
 
-            {/* Distance / time breakdown */}
+            {/* DISTANCE + TIME ROW */}
             {metrics && (
-              <section className="grid md:grid-cols-[2fr,1.5fr] gap-4">
-                <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <BarChart3 className="w-5 h-5 text-emerald-300" />
-                    <h3 className="text-sm font-semibold">
-                      Distance breakdown
-                    </h3>
+              <section className="grid md:grid-cols-[1.7fr,1.3fr] gap-4">
+                {/* Distance breakdown */}
+                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Bike className="w-5 h-5 text-cyan-300" />
+                      <h3 className="text-sm font-semibold">
+                        Distance breakdown
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
+                      {formatMiles(totalMiles)} total
+                    </p>
                   </div>
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div className="rounded-2xl bg-slate-950/70 border border-slate-700/70 px-3 py-3">
-                      <p className="text-[11px] text-slate-400 uppercase mb-1">
+                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Running
                       </p>
                       <p className="text-base font-semibold">
                         {formatMiles(metrics.distance.runMiles)}
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-950/70 border border-slate-700/70 px-3 py-3">
-                      <p className="text-[11px] text-slate-400 uppercase mb-1">
+                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Cycling
                       </p>
                       <p className="text-base font-semibold">
                         {formatMiles(metrics.distance.rideMiles)}
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-950/70 border border-slate-700/70 px-3 py-3">
-                      <p className="text-[11px] text-slate-400 uppercase mb-1">
+                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Swimming*
                       </p>
                       <p className="text-base font-semibold">
@@ -911,8 +948,8 @@ export default function Home() {
                         *Meters converted to miles
                       </p>
                     </div>
-                    <div className="rounded-2xl bg-slate-950/70 border border-slate-700/70 px-3 py-3">
-                      <p className="text-[11px] text-slate-400 uppercase mb-1">
+                    <div className="rounded-2xl bg-slate-950 border border-slate-800 px-3 py-3">
+                      <p className="text-[10px] text-slate-400 uppercase mb-1">
                         Walking / hiking
                       </p>
                       <p className="text-base font-semibold">
@@ -927,272 +964,326 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-5 md:p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Activity className="w-5 h-5 text-cyan-300" />
-                    <h3 className="text-sm font-semibold">Time by sport</h3>
+                {/* Time by sport */}
+                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-emerald-300" />
+                      <h3 className="text-sm font-semibold">Time by sport</h3>
+                    </div>
+                    <p className="text-[11px] text-slate-400 uppercase tracking-[0.16em]">
+                      {formatHours(metrics.time.totalHours)}
+                    </p>
                   </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Running</span>
-                      <span className="font-medium">
-                        {formatHours(metrics.time.runHours)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Cycling</span>
-                      <span className="font-medium">
-                        {formatHours(metrics.time.rideHours)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Swimming</span>
-                      <span className="font-medium">
-                        {formatHours(metrics.time.swimHours)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Strength</span>
-                      <span className="font-medium">
-                        {formatHours(metrics.time.strengthHours)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-slate-800 pt-2 mt-2">
-                      <span className="text-slate-400 text-[11px] uppercase">
-                        Total
-                      </span>
-                      <span className="font-semibold">
-                        {formatHours(metrics.time.totalHours)}
-                      </span>
-                    </div>
+
+                  <div className="space-y-3 text-xs">
+                    {timeSegments &&
+                      timeSegments.map((seg) => {
+                        const pct =
+                          seg.hours <= 0
+                            ? 0
+                            : Math.min(
+                                100,
+                                (seg.hours / totalTimeForBars) * 100,
+                              );
+                        return (
+                          <div key={seg.label} className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-300">
+                                {seg.label}
+                              </span>
+                              <span className="font-medium">
+                                {formatHours(seg.hours)}
+                              </span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full ${seg.color}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               </section>
             )}
 
-            {/* Big efforts + streaks */}
+            {/* BIG EFFORTS + STREAKS */}
             {metrics && (
               <section className="grid md:grid-cols-2 gap-4">
-                <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-5 md:p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Flame className="w-5 h-5 text-orange-400" />
-                    <h3 className="text-sm font-semibold">Biggest efforts</h3>
-                  </div>
-                  <div className="space-y-3 text-sm">
-                    {metrics.longestActivity && (
-                      <div className="rounded-2xl bg-slate-950/70 border border-slate-700/90 px-4 py-3">
-                        <p className="text-[11px] uppercase text-slate-400 mb-1">
-                          Longest activity
-                        </p>
-                        <p className="font-semibold">
-                          {metrics.longestActivity.title}
-                        </p>
-                        <p className="text-slate-400 text-xs">
-                          {metrics.longestActivity.date}
-                        </p>
-                        <p className="text-xs text-slate-300 mt-1">
-                          {metrics.longestActivity.duration} •{' '}
-                          {metrics.longestActivity.distance}
-                        </p>
-                      </div>
-                    )}
-                    {metrics.highestCalorie && (
-                      <div className="rounded-2xl bg-slate-950/70 border border-slate-700/90 px-4 py-3">
-                        <p className="text-[11px] uppercase text-slate-400 mb-1">
-                          Most calories in one go
-                        </p>
-                        <p className="font-semibold">
-                          {metrics.highestCalorie.title}
-                        </p>
-                        <p className="text-slate-400 text-xs">
-                          {metrics.highestCalorie.date}
-                        </p>
-                        <p className="text-xs text-slate-300 mt-1">
-                          {metrics.highestCalorie.distance}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 p-5 md:p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Zap className="w-5 h-5 text-yellow-300" />
-                    <h3 className="text-sm font-semibold">
-                      Consistency & grind
-                    </h3>
-                  </div>
-                  {metrics.streaks && metrics.streaks.longestStreakDays > 0 ? (
-                    <div className="space-y-4 text-sm">
-                      <div className="rounded-2xl bg-slate-950/70 border border-slate-700/90 px-4 py-3">
-                        <p className="text-[11px] uppercase text-slate-400 mb-1">
-                          Longest streak
-                        </p>
-                        <p className="text-2xl font-semibold">
-                          {metrics.streaks.longestStreakDays} days
-                        </p>
-                        {metrics.streaks.longestStreakStart &&
-                          metrics.streaks.longestStreakEnd && (
-                            <p className="text-xs text-slate-300 mt-1">
-                              {metrics.streaks.longestStreakStart} →{' '}
-                              {metrics.streaks.longestStreakEnd}
+                {/* Biggest efforts */}
+                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-indigo-500/15 via-slate-950 to-slate-900 p-5 md:p-6 relative overflow-hidden">
+                  <div className="absolute -right-12 -top-12 w-32 h-32 rounded-full bg-indigo-500/25 blur-3xl" />
+                  <div className="relative">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Flame className="w-5 h-5 text-orange-300" />
+                      <h3 className="text-sm font-semibold">Biggest efforts</h3>
+                    </div>
+                    <div className="space-y-3 text-sm">
+                      {metrics.longestActivity && (
+                        <div className="rounded-2xl bg-slate-950/80 border border-slate-800 px-4 py-3 flex gap-3">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                            <Activity className="w-4 h-4 text-emerald-300" />
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase text-slate-400 mb-1">
+                              Longest activity
                             </p>
-                          )}
-                        <p className="text-xs text-slate-500 mt-1 italic">
-                          You refused to break the chain.
-                        </p>
-                      </div>
+                            <p className="font-semibold leading-snug">
+                              {metrics.longestActivity.title}
+                            </p>
+                            <p className="text-slate-400 text-xs">
+                              {metrics.longestActivity.date}
+                            </p>
+                            <p className="text-xs text-slate-300 mt-1">
+                              {metrics.longestActivity.duration} •{' '}
+                              {metrics.longestActivity.distance}
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
-                      {metrics.streaks.busiestWeekLabel && (
-                        <div className="rounded-2xl bg-slate-950/70 border border-slate-700/90 px-4 py-3">
-                          <p className="text-[11px] uppercase text-slate-400 mb-1">
-                            Busiest week
-                          </p>
-                          <p className="font-semibold">
-                            {metrics.streaks.busiestWeekLabel}
-                          </p>
-                          <p className="text-xs text-slate-300 mt-1">
-                            {formatHours(metrics.streaks.busiestWeekHours)} •{' '}
-                            {metrics.streaks.busiestWeekActivities} activities
-                          </p>
+                      {metrics.highestCalorie && (
+                        <div className="rounded-2xl bg-slate-950/80 border border-slate-800 px-4 py-3 flex gap-3">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                            <Flame className="w-4 h-4 text-orange-300" />
+                          </div>
+                          <div>
+                            <p className="text-[11px] uppercase text-slate-400 mb-1">
+                              Most calories in one go
+                            </p>
+                            <p className="font-semibold leading-snug">
+                              {metrics.highestCalorie.title}
+                            </p>
+                            <p className="text-slate-400 text-xs">
+                              {metrics.highestCalorie.date}
+                            </p>
+                            <p className="text-xs text-slate-300 mt-1">
+                              {metrics.highestCalorie.distance}
+                            </p>
+                          </div>
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">
-                      Once activities are loaded, we&apos;ll show your longest
-                      streak and busiest week here.
-                    </p>
-                  )}
+                  </div>
+                </div>
+
+                {/* Consistency / grind */}
+                <div className="rounded-3xl border border-slate-900 bg-gradient-to-br from-amber-500/10 via-slate-950 to-orange-600/10 p-5 md:p-6 relative overflow-hidden">
+                  <div className="absolute -left-16 -top-16 w-32 h-32 rounded-full bg-amber-400/25 blur-3xl" />
+                  <div className="absolute -right-10 bottom-0 w-32 h-32 rounded-full bg-orange-500/20 blur-3xl" />
+                  <div className="relative">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="w-5 h-5 text-yellow-300" />
+                      <h3 className="text-sm font-semibold">
+                        Consistency & grind
+                      </h3>
+                    </div>
+
+                    {metrics.streaks && metrics.streaks.longestStreakDays > 0 ? (
+                      <div className="space-y-3 text-sm">
+                        <div className="rounded-2xl bg-slate-950/80 border border-slate-800 px-4 py-3">
+                          <p className="text-[11px] uppercase text-slate-400 mb-1">
+                            Longest streak
+                          </p>
+                          <div className="flex items-baseline gap-2">
+                            <p className="text-2xl font-semibold">
+                              {metrics.streaks.longestStreakDays}
+                            </p>
+                            <p className="text-xs text-slate-300">days</p>
+                          </div>
+                          {metrics.streaks.longestStreakStart &&
+                            metrics.streaks.longestStreakEnd && (
+                              <p className="text-xs text-slate-300 mt-1">
+                                {metrics.streaks.longestStreakStart} →{' '}
+                                {metrics.streaks.longestStreakEnd}
+                              </p>
+                            )}
+                          <p className="text-[11px] text-slate-500 mt-1 italic">
+                            You refused to break the chain.
+                          </p>
+                        </div>
+
+                        {metrics.streaks.busiestWeekLabel && (
+                          <div className="rounded-2xl bg-slate-950/80 border border-slate-800 px-4 py-3 flex gap-3 items-center">
+                            <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-yellow-500/25 flex items-center justify-center">
+                              <Calendar className="w-4 h-4 text-yellow-200" />
+                            </div>
+                            <div>
+                              <p className="text-[11px] uppercase text-slate-400 mb-1">
+                                Busiest week
+                              </p>
+                              <p className="font-semibold leading-tight">
+                                {metrics.streaks.busiestWeekLabel}
+                              </p>
+                              <p className="text-xs text-slate-300 mt-1">
+                                {formatHours(
+                                  metrics.streaks.busiestWeekHours,
+                                )}{' '}
+                                • {metrics.streaks.busiestWeekActivities}{' '}
+                                activities
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-200">
+                        Once activities are loaded, we&apos;ll show your longest
+                        streak and busiest week here.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </section>
             )}
 
-            {/* Steps Wrapped */}
-            <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-cyan-900 via-slate-950 to-slate-900 p-5 md:p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Footprints className="w-5 h-5 text-cyan-300" />
-                <h3 className="text-sm font-semibold">Steps wrapped</h3>
+            {/* STEPS WRAPPED */}
+            <section className="rounded-3xl border border-slate-900 bg-gradient-to-br from-cyan-500/20 via-slate-950 to-slate-900 p-5 md:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Footprints className="w-5 h-5 text-cyan-200" />
+                  <h3 className="text-sm font-semibold">Steps wrapped</h3>
+                </div>
+                <p className="text-[11px] text-cyan-100/80 uppercase tracking-[0.18em]">
+                  Daily grind
+                </p>
               </div>
+
               {stepsMetrics ? (
-                <div className="grid md:grid-cols-4 gap-4 text-sm">
-                  <div className="rounded-2xl bg-slate-950/60 border border-cyan-500/40 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                <div className="grid md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-2xl bg-slate-950/80 border border-cyan-400/40 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Total steps
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {stepsMetrics.totalSteps.toLocaleString()}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-slate-300 mt-1">
                       Across {stepsMetrics.weeks} weeks
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-cyan-500/20 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-cyan-400/20 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Avg per day
                     </p>
-                    <p className="text-xl font-semibold">
-                      {Math.round(stepsMetrics.avgStepsPerDay).toLocaleString()}
+                    <p className="text-xl font-semibold leading-none">
+                      {Math.round(
+                        stepsMetrics.avgStepsPerDay,
+                      ).toLocaleString()}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      {Math.round(stepsMetrics.avgStepsPerWeek).toLocaleString()}{' '}
+                    <p className="text-[11px] text-slate-300 mt-1">
+                      {Math.round(
+                        stepsMetrics.avgStepsPerWeek,
+                      ).toLocaleString()}{' '}
                       / week
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-cyan-500/20 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-cyan-400/20 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Best week
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {stepsMetrics.bestWeekSteps.toLocaleString()}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-slate-300 mt-1">
                       {stepsMetrics.bestWeekLabel}
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-cyan-500/20 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-cyan-400/20 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Distance from steps
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {formatMiles(stepsMetrics.approxMiles)}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-slate-300 mt-1">
                       Based on ~1,842 steps / mile
                     </p>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-slate-100">
                   Upload a Steps CSV to see total steps, best week, and your
                   day-to-day walking vibe.
                 </p>
               )}
             </section>
 
-            {/* Sleep Wrapped */}
-            <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-indigo-900 via-slate-950 to-slate-950 p-5 md:p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <MoonStar className="w-5 h-5 text-indigo-300" />
-                <h3 className="text-sm font-semibold">Sleep wrapped</h3>
+            {/* SLEEP WRAPPED */}
+            <section className="rounded-3xl border border-slate-900 bg-gradient-to-br from-indigo-500/20 via-slate-950 to-purple-600/15 p-5 md:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <MoonStar className="w-5 h-5 text-indigo-200" />
+                  <h3 className="text-sm font-semibold">Sleep wrapped</h3>
+                </div>
+                <p className="text-[11px] text-indigo-100/80 uppercase tracking-[0.18em]">
+                  Recovery mode
+                </p>
               </div>
+
               {sleepMetrics ? (
-                <div className="grid md:grid-cols-4 gap-4 text-sm">
-                  <div className="rounded-2xl bg-slate-950/60 border border-indigo-400/50 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                <div className="grid md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-2xl bg-slate-950/80 border border-indigo-400/40 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Weeks of data
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {sleepMetrics.weeks}
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-indigo-400/30 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-indigo-400/30 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Avg sleep / night
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {sleepMetrics.avgSleepHours.toFixed(1)} h
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-slate-300 mt-1">
                       Total {sleepMetrics.totalSleepHours.toFixed(0)} h tracked
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-indigo-400/30 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-indigo-400/30 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Avg sleep score
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {sleepMetrics.avgScore.toFixed(0)}
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Best: {sleepMetrics.bestScore} ({sleepMetrics.bestScoreWeekLabel})
+                    <p className="text-[11px] text-slate-300 mt-1">
+                      Best {sleepMetrics.bestScore} (
+                      {sleepMetrics.bestScoreWeekLabel})
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-slate-950/60 border border-indigo-400/30 px-4 py-3">
-                    <p className="text-[11px] uppercase text-slate-300 mb-1">
+                  <div className="rounded-2xl bg-slate-950/80 border border-indigo-400/30 px-4 py-3">
+                    <p className="text-[10px] uppercase text-slate-200 mb-1">
                       Longest-sleep week
                     </p>
-                    <p className="text-xl font-semibold">
+                    <p className="text-xl font-semibold leading-none">
                       {sleepMetrics.bestDurationHours.toFixed(1)} h
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-[11px] text-slate-300 mt-1">
                       {sleepMetrics.bestDurationWeekLabel}
                     </p>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-slate-100">
                   Upload a Sleep CSV to see how your recovery stacked up against
                   all that training.
                 </p>
               )}
             </section>
 
-            {/* Closing card */}
+            {/* CLOSING CARD */}
             {(metrics || stepsMetrics || sleepMetrics) && (
-              <section className="rounded-3xl border border-slate-800 bg-slate-950/90 p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <section className="rounded-3xl border border-slate-900 bg-slate-950/90 p-5 md:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <Watch className="w-6 h-6 text-emerald-300" />
+                  <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center">
+                    <Watch className="w-4 h-4 text-slate-950" />
+                  </div>
                   <div>
                     <p className="text-[11px] uppercase text-slate-400">
                       2025 wrapped up
@@ -1202,9 +1293,9 @@ export default function Home() {
                     </p>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 italic flex items-center gap-2 justify-end">
+                <p className="text-xs text-slate-500 italic flex items-center gap-2 justify-end">
                   <span>See you next year, coach.</span>
-                  <Activity className="w-4 h-4 text-slate-400" />
+                  <Activity className="w-4 h-4 text-slate-500" />
                 </p>
               </section>
             )}
