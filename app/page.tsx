@@ -521,23 +521,24 @@ function computeMetrics(rows: any[]): Metrics {
   // Build longest activity summary
   let longestActivitySummary:
     | {
-        title: string;
-        date: string;
-        durationSeconds: number;
-        calories?: number;
-      }
+      title: string;
+      date: string;
+      durationSeconds: number;
+      calories?: number;
+    }
     | undefined;
 
-  if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
+  const longest = longestActivityDetail as ActivityDetail | null;
+
+  if (longest && longest.durationSeconds > 0) {
     longestActivitySummary = {
-      title: String(
-        longestActivityDetail.row['Title'] || 'Unknown activity',
-      ),
-      date: formatDateDisplay(longestActivityDetail.date),
-      durationSeconds: longestActivityDetail.durationSeconds,
-      calories: parseNumber(longestActivityDetail.row['Calories']),
+      title: String(longest.row['Title'] || 'Unknown activity'),
+      date: formatDateDisplay(longest.date),
+      durationSeconds: longest.durationSeconds,
+      calories: parseNumber(longest.row['Calories']),
     };
   }
+
 
   // Build highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
