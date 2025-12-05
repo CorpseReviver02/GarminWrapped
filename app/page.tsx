@@ -92,6 +92,13 @@ type SleepMetrics = {
   } | null;
 };
 
+type StepsMetrics = {
+  weeks: number;
+  totalSteps: number;
+  avgStepsPerDay: number;
+  bestWeek: { label: string; steps: number } | null;
+};
+
 type StatCardProps = {
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   value: string;
@@ -247,7 +254,7 @@ function distanceMilesFromRow(row: any): number {
   return raw;
 }
 
-// ---------- metric computation from activity CSV ----------
+// ---------- activity metrics from activity CSV ----------
 
 function computeMetrics(rows: any[]): Metrics {
   let totalDistanceMi = 0;
@@ -285,9 +292,18 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSeconds = 0;
   let swimSessions = 0;
 
-  // Internal accumulators – keep these loose so TS doesn’t complain
-  let longestActivityDetail: any = null;
-  let highestCalorieDetail: any = null;
+  // Internal accumulators
+  let longestActivityDetail: {
+    row: any;
+    durationSeconds: number;
+    date: Date | null;
+  } | null = null;
+  let highestCalorieDetail: {
+    row: any;
+    calories: number;
+    date: Date | null;
+    durationSeconds: number;
+  } | null = null;
 
   const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
@@ -557,7 +573,7 @@ function computeMetrics(rows: any[]): Metrics {
   };
 }
 
-// ---------- metric computation from sleep CSV ----------
+// ---------- sleep metrics from Sleep CSV ----------
 
 function computeSleepMetrics(rows: any[]): SleepMetrics {
   let totalScore = 0;
@@ -607,6 +623,54 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
   };
 }
 
+// ---------- steps metrics from Steps CSV ----------
+
+function computeStepsMetrics(rows: any[]): StepsMetrics {
+  const first = rows[0] || {};
+  const headers = Object.keys(first);
+
+  const stepsHeader =
+    headers.find((h) => /step/i.test(h)) || null;
+  if (!stepsHeader) {
+    throw new Error(
+      "Could not find a 'Steps' column in that CSV (looking for headers containing 'step').",
+    );
+  }
+
+  const labelHeader =
+    headers.find((h) => /date|week/i.test(h)) || null;
+
+  let weeks = 0;
+  let totalSteps = 0;
+  let bestWeek: StepsMetrics['bestWeek'] = null;
+
+  rows.forEach((row, index) => {
+    const raw = row[stepsHeader];
+    const steps = parseNumber(raw);
+    if (!steps) return;
+
+    totalSteps += steps;
+    weeks += 1;
+
+    const labelBase =
+      (labelHeader && row[labelHeader] && String(row[labelHeader]).trim()) ||
+      `Week ${index + 1}`;
+
+    if (!bestWeek || steps > bestWeek.steps) {
+      bestWeek = { label: labelBase, steps };
+    }
+  });
+
+  const avgStepsPerDay = weeks ? totalSteps / (weeks * 7) : 0;
+
+  return {
+    weeks,
+    totalSteps,
+    avgStepsPerDay,
+    bestWeek,
+  };
+}
+
 // ---------- UI components ----------
 
 function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
@@ -634,6 +698,11 @@ export default function Home() {
     null,
   );
   const [sleepError, setSleepError] = useState<string | null>(null);
+
+  const [stepsMetrics, setStepsMetrics] = useState<StepsMetrics | null>(
+    null,
+  );
+  const [stepsError, setStepsError] = useState<string | null>(null);
 
   const pageRef = useRef<HTMLDivElement | null>(null);
 
@@ -703,6 +772,45 @@ export default function Home() {
         console.error(err);
         setSleepError('Failed to parse sleep CSV file.');
         setSleepMetrics(null);
+      },
+    });
+  };
+
+  const handleStepsFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setStepsError(null);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          const data = (results.data as any[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
+          if (!data.length) {
+            setStepsError('Could not find any step rows in that CSV.');
+            setStepsMetrics(null);
+            return;
+          }
+          const m = computeStepsMetrics(data);
+          setStepsMetrics(m);
+        } catch (err: any) {
+          console.error(err);
+          setStepsError(
+            err?.message ||
+              'Sorry, something went wrong reading the steps CSV.',
+          );
+          setStepsMetrics(null);
+        }
+      },
+      error: (err) => {
+        console.error(err);
+        setStepsError('Failed to parse steps CSV file.');
+        setStepsMetrics(null);
       },
     });
   };
@@ -859,6 +967,16 @@ export default function Home() {
         : 'C+'
       : '--';
 
+  // Steps strings
+  const step = stepsMetrics;
+  const totalStepsStr = step
+    ? step.totalSteps.toLocaleString()
+    : null;
+  const avgStepsStr =
+    step && step.avgStepsPerDay
+      ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
+      : null;
+
   return (
     <div
       ref={pageRef}
@@ -899,6 +1017,18 @@ export default function Home() {
               />
             </label>
 
+            {/* Steps upload */}
+            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
+              <Upload className="w-3 h-3" />
+              <span>Upload Steps CSV (optional)</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleStepsFileChange}
+              />
+            </label>
+
             {/* Download button */}
             {metrics && (
               <button
@@ -924,6 +1054,11 @@ export default function Home() {
             {sleepError && (
               <p className="text-xs text-red-400 max-w-xs text-right">
                 {sleepError}
+              </p>
+            )}
+            {stepsError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {stepsError}
               </p>
             )}
           </div>
@@ -964,6 +1099,25 @@ export default function Home() {
                       <span className="font-semibold">{earthPercentStr}</span>{' '}
                       of the way around Earth.
                     </div>
+                    {step && totalStepsStr && (
+                      <div className="text-sm text-zinc-300 mt-1">
+                        That came from{' '}
+                        <span className="font-semibold">
+                          {totalStepsStr} steps
+                        </span>
+                        {avgStepsStr && (
+                          <>
+                            {' '}
+                            (
+                            <span className="font-semibold">
+                              {avgStepsStr}
+                            </span>
+                            )
+                          </>
+                        )}
+                        .
+                      </div>
+                    )}
                   </div>
 
                   <div className="bg-black/40 rounded-2xl px-4 py-3 border border-white/10 flex flex-col gap-1 min-w-[9rem]">
