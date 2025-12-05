@@ -5,12 +5,9 @@ import Papa from "papaparse";
 import * as htmlToImage from "html-to-image";
 import {
   Activity,
-  Flame,
   Zap,
-  Calendar,
   Moon,
   Footprints,
-  Bike,
   Dumbbell,
   ArrowDownToLine,
   UploadCloud,
@@ -130,21 +127,19 @@ function parseDateOnly(val: any): Date | null {
   let s = String(val).trim();
   if (!s) return null;
 
-  // If it's a range like "Jan 11-17", take the first part
+  // If it's a range like "Jan 11-17", keep first part
   if (s.includes("-")) {
     const parts = s.split("-");
     if (parts.length > 1 && /\d/.test(parts[1])) {
-      // for "Jan 11-17" keep the month and first day only
       s = parts[0].trim();
     }
   }
 
-  // If it has a time, just keep the date
+  // If it has a time, keep the date part
   if (s.includes(" ")) {
     s = s.split(" ")[0];
   }
 
-  // Try mm/dd/yyyy or mm/dd/yy
   const slashParts = s.split("/");
   if (slashParts.length === 3) {
     let [m, d, y] = slashParts;
@@ -157,7 +152,6 @@ function parseDateOnly(val: any): Date | null {
     }
   }
 
-  // Otherwise let Date try
   const dt = new Date(s);
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
@@ -231,8 +225,8 @@ function parseSleepDurationHours(raw: any): number {
   const s = String(raw);
   const hMatch = s.match(/(\d+)\s*h/);
   const mMatch = s.match(/(\d+)\s*min/);
-  const h = hMatch ? parseInt(hMatch[0], 10) : 0;
-  const m = mMatch ? parseInt(mMatch[0], 10) : 0;
+  const h = hMatch ? parseInt(hMatch[1], 10) : 0;
+  const m = mMatch ? parseInt(mMatch[1], 10) : 0;
   if (!h && !m) {
     return parseNumber(raw);
   }
@@ -392,8 +386,7 @@ function computeActivityMetrics(rows: CsvRow[]): ActivityMetrics | null {
     const bestRide = [...cycleActs]
       .filter((a) => a.miles > 0 && a.timeSec > 0)
       .sort(
-        (a, b) =>
-          b.miles / (b.timeSec || 1) - a.miles / (a.timeSec || 1)
+        (a, b) => b.miles / (b.timeSec || 1) - a.miles / (a.timeSec || 1)
       )[0];
     if (bestRide) {
       cyclingSummary.bestEffort = {
@@ -415,8 +408,7 @@ function computeActivityMetrics(rows: CsvRow[]): ActivityMetrics | null {
     const bestSwim = [...swimActs]
       .filter((a) => a.meters > 0 && a.timeSec > 0)
       .sort(
-        (a, b) =>
-          a.timeSec / (a.meters || 1) - b.timeSec / (b.meters || 1)
+        (a, b) => a.timeSec / (a.meters || 1) - b.timeSec / (b.meters || 1)
       )[0];
     if (bestSwim) {
       swimmingSummary.bestEffort = {
@@ -523,7 +515,7 @@ function computeActivityMetrics(rows: CsvRow[]): ActivityMetrics | null {
     const d = a.date;
     const monday = new Date(d);
     const day = monday.getDay(); // 0–6
-    const diff = (day + 6) % 7; // convert so Monday is 0
+    const diff = (day + 6) % 7; // Monday = 0
     monday.setDate(d.getDate() - diff);
     monday.setHours(0, 0, 0, 0);
     const key = monday.toISOString().slice(0, 10);
@@ -600,11 +592,10 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics | null {
     headers[lower.findIndex((h) => h.includes("step"))] ?? "";
 
   if (!stepsKey) {
-    // fall back to the first numeric-looking column
     stepsKey =
-      headers.find((h) => {
-        return rows.some((r) => parseNumber(r[h]) > 0);
-      }) ?? headers[1] ?? headers[0];
+      headers.find((h) =>
+        rows.some((r) => parseNumber(r[h]) > 0)
+      ) ?? headers[1] ?? headers[0];
   }
 
   const weeks = rows
@@ -626,7 +617,7 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics | null {
     weeks[0]
   );
 
-  const distanceFromStepsMi = totalSteps / 1842; // Garmin's ~1,842 steps per mile
+  const distanceFromStepsMi = totalSteps / 1842;
 
   return {
     totalSteps,
@@ -758,9 +749,9 @@ const Home: React.FC = () => {
   const handleDownloadImage = async () => {
     if (!pageRef.current) return;
     try {
+      // Default pixelRatio avoids huge canvases that can get cropped
       const dataUrl = await htmlToImage.toPng(pageRef.current, {
         cacheBust: true,
-        pixelRatio: 2,
       });
       const link = document.createElement("a");
       link.href = dataUrl;
@@ -778,6 +769,14 @@ const Home: React.FC = () => {
   const cycling = activityMetrics?.cycling;
   const swimming = activityMetrics?.swimming;
 
+  const verticalGainFt = activityMetrics?.verticalGainFt ?? 0;
+  const highestElevationFt = activityMetrics?.highestElevationFt ?? 0;
+  const approxFloors = verticalGainFt ? Math.round(verticalGainFt / 10) : 0;
+  const EVEREST_FT = 29029;
+  const everestPct = highestElevationFt
+    ? Math.round((highestElevationFt / EVEREST_FT) * 100)
+    : 0;
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div
@@ -787,7 +786,7 @@ const Home: React.FC = () => {
         {/* Top controls */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2">
-            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-cyan-400/40 px-3 py-1.5 text-xs font-medium cursor-pointer hover:bg-slate-900">
+            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-cyan-400/40 px-3 py-2 text-[0.8rem] font-medium cursor-pointer hover:bg-slate-900">
               <UploadCloud className="w-4 h-4 text-cyan-300" />
               <span>Upload activities CSV</span>
               <input
@@ -798,7 +797,7 @@ const Home: React.FC = () => {
               />
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-emerald-400/40 px-3 py-1.5 text-xs font-medium cursor-pointer hover:bg-slate-900">
+            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-emerald-400/40 px-3 py-2 text-[0.8rem] font-medium cursor-pointer hover:bg-slate-900">
               <Footprints className="w-4 h-4 text-emerald-300" />
               <span>Upload steps CSV</span>
               <input
@@ -809,7 +808,7 @@ const Home: React.FC = () => {
               />
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-indigo-400/40 px-3 py-1.5 text-xs font-medium cursor-pointer hover:bg-slate-900">
+            <label className="inline-flex items-center gap-2 rounded-full bg-slate-900/70 border border-indigo-400/40 px-3 py-2 text-[0.8rem] font-medium cursor-pointer hover:bg-slate-900">
               <Moon className="w-4 h-4 text-indigo-300" />
               <span>Upload sleep CSV</span>
               <input
@@ -823,7 +822,7 @@ const Home: React.FC = () => {
 
           <button
             onClick={handleDownloadImage}
-            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 py-1.5 text-xs font-semibold shadow-lg shadow-cyan-500/30 hover:brightness-110"
+            className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-emerald-500 px-4 py-2 text-[0.8rem] font-semibold shadow-lg shadow-cyan-500/30 hover:brightness-110"
           >
             <ArrowDownToLine className="w-4 h-4" />
             Download as image
@@ -831,34 +830,34 @@ const Home: React.FC = () => {
         </div>
 
         {error && (
-          <div className="text-xs text-red-300 bg-red-950/60 border border-red-500/40 rounded-xl px-3 py-2">
+          <div className="text-sm text-red-300 bg-red-950/60 border border-red-500/40 rounded-xl px-3 py-2">
             {error}
           </div>
         )}
 
         {/* Hero */}
         <section className="rounded-3xl bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-600 p-[1px] shadow-[0_0_40px_rgba(34,211,238,0.25)]">
-          <div className="rounded-[1.4rem] bg-slate-950/80 px-5 py-4 sm:px-8 sm:py-6 flex flex-col gap-6">
+          <div className="rounded-[1.4rem] bg-slate-950/80 px-5 py-5 sm:px-8 sm:py-7 flex flex-col gap-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-[0.7rem] uppercase tracking-[0.25em] text-cyan-200/80 mb-1">
+                <div className="text-[0.8rem] uppercase tracking-[0.25em] text-cyan-200/80 mb-1">
                   {yearLabel} • Garmin wrapped
                 </div>
-                <div className="text-2xl sm:text-3xl font-semibold">
+                <div className="text-3xl sm:text-4xl font-semibold">
                   Your year in movement
                 </div>
-                <p className="mt-2 max-w-xl text-xs text-slate-200/80">
+                <p className="mt-2 max-w-xl text-sm text-slate-200/80">
                   From lifts and Zwift to long runs and high-altitude
                   hiking, here&apos;s what your watch saw this year.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[0.7rem]">
-                <div className="rounded-2xl bg-slate-900/70 px-3 py-2 border border-slate-700/60">
-                  <div className="uppercase text-[0.6rem] text-slate-400">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[0.8rem]">
+                <div className="rounded-2xl bg-slate-900/70 px-3 py-3 border border-slate-700/60">
+                  <div className="uppercase text-[0.7rem] text-slate-400">
                     Activities
                   </div>
-                  <div className="mt-1 text-base font-semibold">
+                  <div className="mt-1 text-lg font-semibold">
                     {activityMetrics
                       ? activityMetrics.totalActivities.toLocaleString(
                           "en-US"
@@ -866,21 +865,21 @@ const Home: React.FC = () => {
                       : "—"}
                   </div>
                 </div>
-                <div className="rounded-2xl bg-slate-900/70 px-3 py-2 border border-slate-700/60">
-                  <div className="uppercase text-[0.6rem] text-slate-400">
+                <div className="rounded-2xl bg-slate-900/70 px-3 py-3 border border-slate-700/60">
+                  <div className="uppercase text-[0.7rem] text-slate-400">
                     Training time
                   </div>
-                  <div className="mt-1 text-base font-semibold">
+                  <div className="mt-1 text-lg font-semibold">
                     {activityMetrics
                       ? formatHoursLabel(activityMetrics.totalTimeHours)
                       : "—"}
                   </div>
                 </div>
-                <div className="rounded-2xl bg-slate-900/70 px-3 py-2 border border-slate-700/60">
-                  <div className="uppercase text-[0.6rem] text-slate-400">
+                <div className="rounded-2xl bg-slate-900/70 px-3 py-3 border border-slate-700/60">
+                  <div className="uppercase text-[0.7rem] text-slate-400">
                     Distance traveled
                   </div>
-                  <div className="mt-1 text-base font-semibold">
+                  <div className="mt-1 text-lg font-semibold">
                     {activityMetrics
                       ? formatDistanceMiles(
                           activityMetrics.totalDistanceMi
@@ -888,11 +887,11 @@ const Home: React.FC = () => {
                       : "—"}
                   </div>
                 </div>
-                <div className="rounded-2xl bg-slate-900/70 px-3 py-2 border border-slate-700/60">
-                  <div className="uppercase text-[0.6rem] text-slate-400">
+                <div className="rounded-2xl bg-slate-900/70 px-3 py-3 border border-slate-700/60">
+                  <div className="uppercase text-[0.7rem] text-slate-400">
                     Calories burned
                   </div>
-                  <div className="mt-1 text-base font-semibold">
+                  <div className="mt-1 text-lg font-semibold">
                     {activityMetrics
                       ? `${Math.round(
                           activityMetrics.totalCalories
@@ -907,14 +906,14 @@ const Home: React.FC = () => {
 
         {/* Distance breakdown */}
         <section className="rounded-3xl bg-slate-950/90 border border-slate-800/80 shadow-[0_0_40px_rgba(15,23,42,0.7)]">
-          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.7rem]">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.8rem]">
             <div className="flex items-center gap-2">
               <Activity className="w-3.5 h-3.5 text-cyan-300" />
               <span className="uppercase tracking-[0.18em] text-slate-300">
                 Distance breakdown
               </span>
             </div>
-            <div className="text-[0.65rem] text-slate-400">
+            <div className="text-[0.75rem] text-slate-400">
               {activityMetrics
                 ? `${Math.round(
                     activityMetrics.totalDistanceMi
@@ -922,48 +921,48 @@ const Home: React.FC = () => {
                 : ""}
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 pb-4 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-5 pb-4 text-[0.85rem]">
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-              <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+              <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                 Running
               </div>
-              <div className="text-sm font-semibold">
+              <div className="text-base font-semibold">
                 {running ? `${Math.round(running.distanceMi)} mi` : "—"}
               </div>
             </div>
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-              <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+              <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                 Cycling
               </div>
-              <div className="text-sm font-semibold">
+              <div className="text-base font-semibold">
                 {cycling ? `${Math.round(cycling.distanceMi)} mi` : "—"}
               </div>
             </div>
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
               <div className="flex items-center justify-between mb-1">
-                <div className="text-[0.6rem] uppercase text-slate-400">
+                <div className="text-[0.7rem] uppercase text-slate-400">
                   Swimming*
                 </div>
               </div>
-              <div className="text-sm font-semibold">
+              <div className="text-base font-semibold">
                 {swimming
                   ? `${swimming.distanceMi.toFixed(1)} mi`
                   : "—"}
               </div>
-              <div className="mt-1 text-[0.6rem] text-slate-500">
+              <div className="mt-1 text-[0.7rem] text-slate-500">
                 *Meters converted to miles
               </div>
             </div>
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-              <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+              <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                 Walking / hiking
               </div>
-              <div className="text-sm font-semibold">
+              <div className="text-base font-semibold">
                 {stepsMetrics
                   ? formatDistanceMiles(stepsMetrics.distanceFromStepsMi)
                   : "0 mi"}
               </div>
-              <div className="mt-1 text-[0.6rem] text-slate-500">
+              <div className="mt-1 text-[0.7rem] text-slate-500">
                 From steps export
               </div>
             </div>
@@ -972,29 +971,29 @@ const Home: React.FC = () => {
 
         {/* Time by sport with best efforts */}
         <section className="rounded-3xl bg-slate-950/95 border border-slate-800/80 shadow-[0_0_40px_rgba(15,23,42,0.7)]">
-          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.7rem]">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.8rem]">
             <div className="flex items-center gap-2">
               <Activity className="w-3.5 h-3.5 text-sky-300" />
               <span className="uppercase tracking-[0.18em] text-slate-300">
                 Time by sport
               </span>
             </div>
-            <div className="text-[0.65rem] text-slate-400">
+            <div className="text-[0.75rem] text-slate-400">
               Distance • Time • Pace • Best effort
             </div>
           </div>
-          <div className="grid md:grid-cols-3 gap-3 px-5 pb-4 text-xs">
+          <div className="grid md:grid-cols-3 gap-3 px-5 pb-4 text-[0.85rem]">
             {/* Running */}
             <div className="rounded-2xl bg-gradient-to-br from-emerald-500/15 via-sky-600/10 to-slate-900/90 border border-emerald-400/40 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-[0.6rem] uppercase tracking-[0.18em] text-emerald-200">
+                <div className="text-[0.7rem] uppercase tracking-[0.18em] text-emerald-200">
                   Running
                 </div>
                 <div className="w-12 h-[2px] rounded-full bg-gradient-to-r from-emerald-400 to-cyan-300" />
               </div>
-              <div className="flex justify-between mb-2 text-[0.7rem]">
+              <div className="flex justify-between mb-2">
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Distance</div>
+                  <div className="text-[0.7rem] text-slate-400">Distance</div>
                   <div className="font-semibold">
                     {running
                       ? `${Math.round(running.distanceMi)} mi`
@@ -1002,28 +1001,28 @@ const Home: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Time</div>
+                  <div className="text-[0.7rem] text-slate-400">Time</div>
                   <div className="font-semibold">
                     {running ? formatHoursLabel(running.timeHours) : "—"}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[0.6rem] text-slate-400">Pace</div>
+                  <div className="text-[0.7rem] text-slate-400">Pace</div>
                   <div className="font-semibold">
                     {running?.avgPaceLabel ?? "—"}
                   </div>
                 </div>
               </div>
               <div className="mt-2 border-t border-emerald-400/25 pt-2">
-                <div className="text-[0.6rem] uppercase text-emerald-200/90 mb-0.5">
+                <div className="text-[0.7rem] uppercase text-emerald-200/90 mb-0.5">
                   Best effort
                 </div>
                 {running?.bestEffort ? (
                   <>
-                    <div className="text-[0.7rem] font-medium truncate">
+                    <div className="text-[0.85rem] font-medium truncate">
                       {running.bestEffort.title}
                     </div>
-                    <div className="flex justify-between items-center mt-0.5 text-[0.65rem] text-slate-300/90">
+                    <div className="flex justify-between items-center mt-0.5 text-[0.75rem] text-slate-300/90">
                       <span>{running.bestEffort.subtitle}</span>
                       <span className="font-semibold text-emerald-200">
                         {running.bestEffort.statLabel}
@@ -1031,7 +1030,7 @@ const Home: React.FC = () => {
                     </div>
                   </>
                 ) : (
-                  <div className="text-[0.65rem] text-slate-500">
+                  <div className="text-[0.75rem] text-slate-500">
                     Upload activities to see your fastest run.
                   </div>
                 )}
@@ -1041,14 +1040,14 @@ const Home: React.FC = () => {
             {/* Cycling */}
             <div className="rounded-2xl bg-gradient-to-br from-cyan-500/15 via-sky-500/10 to-slate-900/90 border border-cyan-400/40 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-[0.6rem] uppercase tracking-[0.18em] text-cyan-200">
+                <div className="text-[0.7rem] uppercase tracking-[0.18em] text-cyan-200">
                   Cycling
                 </div>
                 <div className="w-12 h-[2px] rounded-full bg-gradient-to-r from-cyan-300 to-blue-400" />
               </div>
-              <div className="flex justify-between mb-2 text-[0.7rem]">
+              <div className="flex justify-between mb-2">
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Distance</div>
+                  <div className="text-[0.7rem] text-slate-400">Distance</div>
                   <div className="font-semibold">
                     {cycling
                       ? `${Math.round(cycling.distanceMi)} mi`
@@ -1056,28 +1055,28 @@ const Home: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Time</div>
+                  <div className="text-[0.7rem] text-slate-400">Time</div>
                   <div className="font-semibold">
                     {cycling ? formatHoursLabel(cycling.timeHours) : "—"}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[0.6rem] text-slate-400">Speed</div>
+                  <div className="text-[0.7rem] text-slate-400">Speed</div>
                   <div className="font-semibold">
                     {cycling?.avgPaceLabel ?? "—"}
                   </div>
                 </div>
               </div>
               <div className="mt-2 border-t border-cyan-400/25 pt-2">
-                <div className="text-[0.6rem] uppercase text-cyan-200/90 mb-0.5">
+                <div className="text-[0.7rem] uppercase text-cyan-200/90 mb-0.5">
                   Best effort
                 </div>
                 {cycling?.bestEffort ? (
                   <>
-                    <div className="text-[0.7rem] font-medium truncate">
+                    <div className="text-[0.85rem] font-medium truncate">
                       {cycling.bestEffort.title}
                     </div>
-                    <div className="flex justify-between items-center mt-0.5 text-[0.65rem] text-slate-300/90">
+                    <div className="flex justify-between items-center mt-0.5 text-[0.75rem] text-slate-300/90">
                       <span>{cycling.bestEffort.subtitle}</span>
                       <span className="font-semibold text-cyan-200">
                         {cycling.bestEffort.statLabel}
@@ -1085,7 +1084,7 @@ const Home: React.FC = () => {
                     </div>
                   </>
                 ) : (
-                  <div className="text-[0.65rem] text-slate-500">
+                  <div className="text-[0.75rem] text-slate-500">
                     Upload activities to see your fastest ride.
                   </div>
                 )}
@@ -1095,14 +1094,14 @@ const Home: React.FC = () => {
             {/* Swimming */}
             <div className="rounded-2xl bg-gradient-to-br from-indigo-500/18 via-violet-500/12 to-slate-900/90 border border-violet-400/40 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-[0.6rem] uppercase tracking-[0.18em] text-violet-200">
+                <div className="text-[0.7rem] uppercase tracking-[0.18em] text-violet-200">
                   Swimming
                 </div>
                 <div className="w-12 h-[2px] rounded-full bg-gradient-to-r from-violet-300 to-pink-400" />
               </div>
-              <div className="flex justify-between mb-2 text-[0.7rem]">
+              <div className="flex justify-between mb-2">
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Distance</div>
+                  <div className="text-[0.7rem] text-slate-400">Distance</div>
                   <div className="font-semibold">
                     {swimming
                       ? `${swimming.distanceMi.toFixed(1)} mi`
@@ -1110,13 +1109,13 @@ const Home: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[0.6rem] text-slate-400">Time</div>
+                  <div className="text-[0.7rem] text-slate-400">Time</div>
                   <div className="font-semibold">
                     {swimming ? formatHoursLabel(swimming.timeHours) : "—"}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[0.6rem] text-slate-400">
+                  <div className="text-[0.7rem] text-slate-400">
                     Avg pace
                   </div>
                   <div className="font-semibold">
@@ -1125,15 +1124,15 @@ const Home: React.FC = () => {
                 </div>
               </div>
               <div className="mt-2 border-t border-violet-400/25 pt-2">
-                <div className="text-[0.6rem] uppercase text-violet-200/90 mb-0.5">
+                <div className="text-[0.7rem] uppercase text-violet-200/90 mb-0.5">
                   Best effort
                 </div>
                 {swimming?.bestEffort ? (
                   <>
-                    <div className="text-[0.7rem] font-medium truncate">
+                    <div className="text-[0.85rem] font-medium truncate">
                       {swimming.bestEffort.title}
                     </div>
-                    <div className="flex justify-between items-center mt-0.5 text-[0.65rem] text-slate-300/90">
+                    <div className="flex justify-between items-center mt-0.5 text-[0.75rem] text-slate-300/90">
                       <span>{swimming.bestEffort.subtitle}</span>
                       <span className="font-semibold text-violet-200">
                         {swimming.bestEffort.statLabel}
@@ -1141,7 +1140,7 @@ const Home: React.FC = () => {
                     </div>
                   </>
                 ) : (
-                  <div className="text-[0.65rem] text-slate-500">
+                  <div className="text-[0.75rem] text-slate-500">
                     Upload activities to see your fastest swim.
                   </div>
                 )}
@@ -1153,37 +1152,40 @@ const Home: React.FC = () => {
         {/* Vertical gains */}
         <section className="rounded-3xl bg-gradient-to-r from-fuchsia-500/25 via-violet-600/20 to-amber-500/25 p-[1px] shadow-[0_0_40px_rgba(192,132,252,0.4)]">
           <div className="rounded-[1.4rem] bg-slate-950/95 px-5 py-4">
-            <div className="flex items-center justify-between mb-4 text-[0.7rem]">
+            <div className="flex items-center justify-between mb-3 text-[0.8rem]">
               <div className="flex items-center gap-2">
                 <MountainIcon className="w-3.5 h-3.5 text-fuchsia-300" />
                 <span className="uppercase tracking-[0.18em] text-slate-200">
                   Vertical gains
                 </span>
               </div>
-              <div className="text-[0.65rem] text-slate-300">Elevation</div>
+              <div className="text-[0.75rem] text-slate-300">Elevation</div>
             </div>
-            <div className="space-y-3 text-xs">
+            <div className="grid md:grid-cols-2 gap-3 text-[0.85rem]">
               <div className="rounded-2xl bg-slate-900/70 border border-fuchsia-500/35 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Total elevation climbed
                 </div>
                 <div className="text-lg font-semibold">
-                  {activityMetrics
-                    ? formatFeetLabel(activityMetrics.verticalGainFt)
-                    : "0 ft"}
+                  {formatFeetLabel(verticalGainFt)}
                 </div>
+                {approxFloors > 0 && (
+                  <div className="mt-1 text-[0.75rem] text-slate-400">
+                    Roughly {approxFloors.toLocaleString("en-US")} floors
+                    climbed.
+                  </div>
+                )}
               </div>
               <div className="rounded-2xl bg-slate-900/70 border border-amber-500/35 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Highest point reached
                 </div>
                 <div className="text-lg font-semibold">
-                  {activityMetrics
-                    ? formatFeetLabel(activityMetrics.highestElevationFt)
-                    : "0 ft"}
+                  {formatFeetLabel(highestElevationFt)}
                 </div>
-                <div className="mt-1 text-[0.6rem] text-slate-500">
-                  That&apos;s about 1.8 miles above sea level.
+                <div className="mt-1 text-[0.75rem] text-slate-400">
+                  That&apos;s about {(everestPct || 0)}% of Mount
+                  Everest&apos;s height.
                 </div>
               </div>
             </div>
@@ -1194,58 +1196,64 @@ const Home: React.FC = () => {
         <section className="grid md:grid-cols-2 gap-3">
           {/* Biggest efforts */}
           <div className="rounded-3xl bg-slate-950/95 border border-slate-800/80 p-5 shadow-[0_0_40px_rgba(15,23,42,0.7)]">
-            <div className="flex items-center gap-2 mb-4 text-[0.7rem]">
+            <div className="flex items-center gap-2 mb-4 text-[0.8rem]">
               <Dumbbell className="w-3.5 h-3.5 text-emerald-300" />
               <span className="uppercase tracking-[0.18em] text-slate-200">
                 Biggest efforts
               </span>
             </div>
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3 text-[0.85rem]">
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Longest activity
                 </div>
                 {activityMetrics?.longestActivity ? (
                   <>
-                    <div className="font-medium text-sm">
+                    <div className="font-medium text-[0.95rem]">
                       {activityMetrics.longestActivity.title}
                     </div>
-                    <div className="mt-0.5 text-[0.65rem] text-slate-300">
+                    <div className="mt-0.5 text-[0.75rem] text-slate-300">
                       {activityMetrics.longestActivity.dateLabel}
                     </div>
-                    <div className="mt-1 flex gap-4 text-[0.65rem] text-slate-200">
+                    <div className="mt-1 flex gap-4 text-[0.75rem] text-slate-200">
                       <span>{activityMetrics.longestActivity.durationLabel}</span>
                       {activityMetrics.longestActivity.distanceLabel && (
-                        <span>{activityMetrics.longestActivity.distanceLabel}</span>
+                        <span>
+                          {activityMetrics.longestActivity.distanceLabel}
+                        </span>
                       )}
                     </div>
                   </>
                 ) : (
-                  <div className="text-[0.65rem] text-slate-500">
+                  <div className="text-[0.75rem] text-slate-500">
                     Upload activities to see your longest day out.
                   </div>
                 )}
               </div>
 
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Most calories in one go
                 </div>
                 {activityMetrics?.highestCalorie ? (
                   <>
-                    <div className="font-medium text-sm">
+                    <div className="font-medium text-[0.95rem]">
                       {activityMetrics.highestCalorie.title}
                     </div>
-                    <div className="mt-0.5 text-[0.65rem] text-slate-300">
+                    <div className="mt-0.5 text-[0.75rem] text-slate-300">
                       {activityMetrics.highestCalorie.dateLabel}
                     </div>
-                    <div className="mt-1 flex gap-4 text-[0.65rem] text-slate-200">
-                      <span>{activityMetrics.highestCalorie.durationLabel}</span>
-                      <span>{activityMetrics.highestCalorie.caloriesLabel}</span>
+                    <div className="mt-1 flex gap-4 text-[0.75rem] text-slate-200">
+                      <span>
+                        {activityMetrics.highestCalorie.durationLabel}
+                      </span>
+                      <span>
+                        {activityMetrics.highestCalorie.caloriesLabel}
+                      </span>
                     </div>
                   </>
                 ) : (
-                  <div className="text-[0.65rem] text-slate-500">
+                  <div className="text-[0.75rem] text-slate-500">
                     Upload activities to find your biggest burn.
                   </div>
                 )}
@@ -1256,53 +1264,53 @@ const Home: React.FC = () => {
           {/* Consistency & grind */}
           <div className="rounded-3xl bg-gradient-to-br from-amber-500/18 via-orange-500/12 to-fuchsia-500/18 p-[1px] shadow-[0_0_40px_rgba(251,191,36,0.35)]">
             <div className="rounded-[1.4rem] bg-slate-950/95 px-5 py-4">
-              <div className="flex items-center gap-2 mb-4 text-[0.7rem]">
+              <div className="flex items-center gap-2 mb-4 text-[0.8rem]">
                 <Zap className="w-3.5 h-3.5 text-amber-300" />
                 <span className="uppercase tracking-[0.18em] text-slate-200">
                   Consistency & grind
                 </span>
               </div>
-              <div className="space-y-3 text-xs">
+              <div className="space-y-3 text-[0.85rem]">
                 <div className="rounded-2xl bg-slate-900/80 border border-amber-500/35 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                  <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                     Longest streak
                   </div>
                   {activityMetrics?.longestStreak ? (
                     <>
-                      <div className="text-lg font-semibold">
+                      <div className="text-xl font-semibold">
                         {activityMetrics.longestStreak.days} days
                       </div>
-                      <div className="mt-0.5 text-[0.65rem] text-slate-300">
+                      <div className="mt-0.5 text-[0.75rem] text-slate-300">
                         {activityMetrics.longestStreak.startLabel} —{" "}
                         {activityMetrics.longestStreak.endLabel}
                       </div>
-                      <div className="mt-1 text-[0.65rem] text-slate-400">
+                      <div className="mt-1 text-[0.75rem] text-slate-400">
                         You refused to break the chain.
                       </div>
                     </>
                   ) : (
-                    <div className="text-[0.65rem] text-slate-500">
+                    <div className="text-[0.75rem] text-slate-500">
                       Upload activities to see your longest streak.
                     </div>
                   )}
                 </div>
 
                 <div className="rounded-2xl bg-slate-900/80 border border-amber-500/35 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                  <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                     Busiest week
                   </div>
                   {activityMetrics?.busiestWeek ? (
                     <>
-                      <div className="text-sm font-semibold">
+                      <div className="text-[0.95rem] font-semibold">
                         {activityMetrics.busiestWeek.rangeLabel}
                       </div>
-                      <div className="mt-0.5 text-[0.65rem] text-slate-300">
+                      <div className="mt-0.5 text-[0.75rem] text-slate-300">
                         {activityMetrics.busiestWeek.hoursLabel} •{" "}
                         {activityMetrics.busiestWeek.activitiesLabel}
                       </div>
                     </>
                   ) : (
-                    <div className="text-[0.65rem] text-slate-500">
+                    <div className="text-[0.75rem] text-slate-500">
                       Upload activities to see when you went all-in.
                     </div>
                   )}
@@ -1314,33 +1322,33 @@ const Home: React.FC = () => {
 
         {/* Steps wrapped */}
         <section className="rounded-3xl bg-slate-950/95 border border-slate-800/80 shadow-[0_0_40px_rgba(8,47,73,0.7)]">
-          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.7rem]">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.8rem]">
             <div className="flex items-center gap-2">
               <Footprints className="w-3.5 h-3.5 text-emerald-300" />
               <span className="uppercase tracking-[0.18em] text-slate-200">
                 Steps wrapped
               </span>
             </div>
-            <div className="text-[0.65rem] text-slate-400">
+            <div className="text-[0.75rem] text-slate-400">
               Daily grind
             </div>
           </div>
 
           {stepsMetrics ? (
-            <div className="grid md:grid-cols-4 gap-3 px-5 pb-4 text-xs">
+            <div className="grid md:grid-cols-4 gap-3 px-5 pb-4 text-[0.85rem]">
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Total steps
                 </div>
                 <div className="text-lg font-semibold">
                   {formatSteps(stepsMetrics.totalSteps)}
                 </div>
-                <div className="mt-1 text-[0.6rem] text-slate-500">
+                <div className="mt-1 text-[0.75rem] text-slate-500">
                   Across {stepsMetrics.weeksOfData} weeks
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Avg per day
                 </div>
                 <div className="text-lg font-semibold">
@@ -1350,30 +1358,30 @@ const Home: React.FC = () => {
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Best week
                 </div>
                 <div className="text-lg font-semibold">
                   {formatSteps(stepsMetrics.bestWeekSteps)}
                 </div>
-                <div className="mt-1 text-[0.6rem] text-slate-500">
+                <div className="mt-1 text-[0.75rem] text-slate-500">
                   {stepsMetrics.bestWeekLabel}
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Distance from steps
                 </div>
                 <div className="text-lg font-semibold">
                   {formatDistanceMiles(stepsMetrics.distanceFromStepsMi)}
                 </div>
-                <div className="mt-1 text-[0.6rem] text-slate-500">
+                <div className="mt-1 text-[0.75rem] text-slate-500">
                   Based on ~1,842 steps / mile
                 </div>
               </div>
             </div>
           ) : (
-            <div className="px-5 pb-4 text-[0.7rem] text-slate-400">
+            <div className="px-5 pb-4 text-[0.8rem] text-slate-400">
               Upload a Steps CSV to see total steps, best week, and how
               far you walked just doing life.
             </div>
@@ -1382,22 +1390,22 @@ const Home: React.FC = () => {
 
         {/* Sleep wrapped */}
         <section className="rounded-3xl bg-slate-950/95 border border-slate-800/80 shadow-[0_0_40px_rgba(30,64,175,0.6)]">
-          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.7rem]">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2 text-[0.8rem]">
             <div className="flex items-center gap-2">
               <Moon className="w-3.5 h-3.5 text-indigo-300" />
               <span className="uppercase tracking-[0.18em] text-slate-200">
                 Sleep wrapped
               </span>
             </div>
-            <div className="text-[0.65rem] text-slate-400">
+            <div className="text-[0.75rem] text-slate-400">
               Recovery mode
             </div>
           </div>
 
           {sleepMetrics ? (
-            <div className="grid md:grid-cols-4 gap-3 px-5 pb-4 text-xs">
+            <div className="grid md:grid-cols-4 gap-3 px-5 pb-4 text-[0.85rem]">
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Weeks of data
                 </div>
                 <div className="text-lg font-semibold">
@@ -1405,7 +1413,7 @@ const Home: React.FC = () => {
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Avg sleep / night
                 </div>
                 <div className="text-lg font-semibold">
@@ -1413,7 +1421,7 @@ const Home: React.FC = () => {
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Avg sleep score
                 </div>
                 <div className="text-lg font-semibold">
@@ -1421,19 +1429,19 @@ const Home: React.FC = () => {
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-900/80 border border-slate-800 px-4 py-3">
-                <div className="text-[0.6rem] uppercase text-slate-400 mb-1">
+                <div className="text-[0.7rem] uppercase text-slate-400 mb-1">
                   Longest sleep week
                 </div>
                 <div className="text-lg font-semibold">
                   {sleepMetrics.bestWeekHours.toFixed(1)} h
                 </div>
-                <div className="mt-1 text-[0.6rem] text-slate-500">
+                <div className="mt-1 text-[0.75rem] text-slate-500">
                   {sleepMetrics.bestWeekLabel}
                 </div>
               </div>
             </div>
           ) : (
-            <div className="px-5 pb-4 text-[0.7rem] text-slate-400">
+            <div className="px-5 pb-4 text-[0.8rem] text-slate-400">
               Upload a Sleep CSV to see how your recovery stacked up
               against all that training.
             </div>
@@ -1441,7 +1449,7 @@ const Home: React.FC = () => {
         </section>
 
         {/* Footer */}
-        <section className="rounded-3xl bg-slate-950/95 border border-slate-900 px-5 py-4 text-[0.7rem] flex items-center justify-between text-slate-400">
+        <section className="rounded-3xl bg-slate-950/95 border border-slate-900 px-5 py-4 text-[0.8rem] flex items-center justify-between text-slate-400">
           <div className="flex items-center gap-2">
             <Activity className="w-3.5 h-3.5 text-emerald-300" />
             <span className="uppercase tracking-[0.18em]">
@@ -1458,7 +1466,7 @@ const Home: React.FC = () => {
   );
 };
 
-// simple little mountain icon for vertical gains
+// simple mountain icon for vertical gains
 function MountainIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" {...props}>
