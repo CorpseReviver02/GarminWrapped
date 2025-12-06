@@ -746,22 +746,33 @@ const Home: React.FC = () => {
     }
   };
 
-  const handleDownloadImage = async () => {
-    if (!pageRef.current) return;
-    try {
-      // Default pixelRatio avoids huge canvases that can get cropped
-      const dataUrl = await htmlToImage.toPng(pageRef.current, {
-        cacheBust: true,
-      });
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = "garmin-wrapped.png";
-      link.click();
-    } catch (err) {
-      console.error(err);
-      alert("Sorry, something went wrong creating the image.");
-    }
-  };
+const handleDownloadImage = async () => {
+  const node = pageRef.current;
+  if (!node) return;
+
+  try {
+    const dataUrl = await htmlToImage.toPng(node, {
+      cacheBust: true,
+      // Use full scroll dimensions so nothing gets cropped
+      width: node.scrollWidth,
+      height: node.scrollHeight,
+      style: {
+        // Ensure there’s no scaling that could affect bounds
+        transform: "scale(1)",
+        transformOrigin: "top left",
+        backgroundColor: "#020617", // tailwind bg-slate-950
+      },
+    });
+
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = "garmin-wrapped.png";
+    link.click();
+  } catch (err) {
+    console.error(err);
+    alert("Sorry, something went wrong creating the image.");
+  }
+};
 
   const yearLabel = activityMetrics?.yearLabel ?? "2025";
 
