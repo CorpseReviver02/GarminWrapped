@@ -421,8 +421,8 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
     if (!a.date) return;
     const d = a.date;
 
-    // Compute Monday-based week
-    const day = d.getDay(); // 0 = Sunday
+    // Monday-based week bucket
+    const day = d.getDay(); // 0 = Sun
     const mondayOffset = (day + 6) % 7;
     const start = new Date(d);
     start.setDate(d.getDate() - mondayOffset);
@@ -433,6 +433,7 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
 
     const key = start.toISOString();
     const existing = weeksMap.get(key);
+
     if (existing) {
       existing.totalSec += a.durationSec;
       existing.activities += 1;
@@ -448,23 +449,26 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
   });
 
   let busiestWeek: WeekAgg | null = null;
+
   weeksMap.forEach((w) => {
     if (!busiestWeek || w.totalSec > busiestWeek.totalSec) {
       busiestWeek = w;
     }
   });
 
-  // Pull fields out into plain variables so TS is happy
+  // Pull out into plain variables (with an explicit cast) so TS stops
+  // treating `busiestWeek` as `never`.
   let busiestWeekHours = 0;
   let busiestWeekActivities = 0;
   let busiestWeekStart: Date | null = null;
   let busiestWeekEnd: Date | null = null;
 
   if (busiestWeek) {
-    busiestWeekHours = busiestWeek.totalSec / 3600;
-    busiestWeekActivities = busiestWeek.activities;
-    busiestWeekStart = busiestWeek.start;
-    busiestWeekEnd = busiestWeek.end;
+    const w = busiestWeek as WeekAgg; // <-- key line
+    busiestWeekHours = w.totalSec / 3600;
+    busiestWeekActivities = w.activities;
+    busiestWeekStart = w.start;
+    busiestWeekEnd = w.end;
   }
 
   const streak: StreakSummary = {
@@ -476,6 +480,7 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
     busiestWeekStart,
     busiestWeekEnd,
   };
+
 
   return {
     year,
