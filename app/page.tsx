@@ -406,7 +406,7 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
     }
   }
 
-  // Busiest week (by hours)
+// Busiest week (by hours)
   type WeekAgg = {
     key: string;
     start: Date;
@@ -420,11 +420,14 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
   activities.forEach((a) => {
     if (!a.date) return;
     const d = a.date;
-    const day = d.getDay(); // 0 Sunday
-    const mondayOffset = (day + 6) % 7; // days since Monday
+
+    // Compute Monday-based week
+    const day = d.getDay(); // 0 = Sunday
+    const mondayOffset = (day + 6) % 7;
     const start = new Date(d);
     start.setDate(d.getDate() - mondayOffset);
     start.setHours(0, 0, 0, 0);
+
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
 
@@ -451,14 +454,27 @@ function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sl
     }
   });
 
+  // Pull fields out into plain variables so TS is happy
+  let busiestWeekHours = 0;
+  let busiestWeekActivities = 0;
+  let busiestWeekStart: Date | null = null;
+  let busiestWeekEnd: Date | null = null;
+
+  if (busiestWeek) {
+    busiestWeekHours = busiestWeek.totalSec / 3600;
+    busiestWeekActivities = busiestWeek.activities;
+    busiestWeekStart = busiestWeek.start;
+    busiestWeekEnd = busiestWeek.end;
+  }
+
   const streak: StreakSummary = {
     longestStreakDays,
     longestStreakStart,
     longestStreakEnd,
-    busiestWeekHours: busiestWeek ? busiestWeek.totalSec / 3600 : 0,
-    busiestWeekActivities: busiestWeek?.activities ?? 0,
-    busiestWeekStart: busiestWeek?.start ?? null,
-    busiestWeekEnd: busiestWeek?.end ?? null,
+    busiestWeekHours,
+    busiestWeekActivities,
+    busiestWeekStart,
+    busiestWeekEnd,
   };
 
   return {
