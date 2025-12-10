@@ -1,4 +1,3 @@
-// tsconfig.json
 {
   "compilerOptions": {
     "strict": true,
@@ -6,22 +5,35 @@
     "lib": ["DOM", "ES2022"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "jsx": "preserve",
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "allowJs": true,
+    "noEmit": true,
+
     "incremental": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
 
-    // Build stability + perf
-    "skipLibCheck": true,
-
-    // Keep strong safety, but avoid edge-case 'never' explosions on unions/optionals
+    // Keep strong safety; you're already guarding indexes/optionals in code
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
 
-    // Helpful in React/Next repos
-    "useUnknownInCatchVariables": true
+    // Build stability/perf
+    "skipLibCheck": true,
+
+    // Nice to have
+    "useUnknownInCatchVariables": true,
+
+    // Next plugin for type hints
+    "plugins": [{ "name": "next" }]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }
