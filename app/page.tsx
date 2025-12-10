@@ -154,16 +154,21 @@ function parseTimeToSeconds(value: any): number {
   if (!value) return 0;
   const s = String(value).trim();
   if (!s) return 0;
+
   const parts = s.split(':').map((p) => parseInt(p, 10));
   if (parts.some((p) => Number.isNaN(p))) return 0;
+
   if (parts.length === 3) {
-    const [h, m, sec] = parts;
+    // why: noUncheckedIndexedAccess makes destructuring possibly undefined
+    const [h, m, sec] = parts as [number, number, number];
     return h * 3600 + m * 60 + sec;
   }
+
   if (parts.length === 2) {
-    const [m, sec] = parts;
+    const [m, sec] = parts as [number, number];
     return m * 60 + sec;
   }
+
   return 0;
 }
 
