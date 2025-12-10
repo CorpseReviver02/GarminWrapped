@@ -118,6 +118,14 @@ type HighestCalorieDetail = {
   durationSeconds: number;
 };
 
+/** Structural guard: avoids alias-based narrowing edge cases in CI */
+function hasDurationSeconds(
+  x: unknown
+): x is { row: CsvRow; durationSeconds: number; date: Date | null } {
+  return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
+}
+
+
 /** why: Vercel/TS sometimes loses control-flow narrowing with unions */
 function isLongestActivityDetail(x: unknown): x is LongestActivityDetail {
   return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
@@ -487,17 +495,17 @@ function computeMetrics(rows: CsvRow[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
-  // Longest activity summary — stable narrowing (two-step)
+  // Longest activity summary — robust narrowing for CI
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  const lad = longestActivityDetail;
-  if (isLongestActivityDetail(lad)) {
-    const durationSeconds = lad.durationSeconds;
+  const l = longestActivityDetail; // why: stabilize control-flow narrowing on a fresh const
+  if (hasDurationSeconds(l)) {
+    const durationSeconds = l.durationSeconds; // safe: l is structurally narrowed above
     if (durationSeconds > 0) {
       longestActivitySummary = {
-        title: getStringField(lad.row, 'Title') || 'Unknown activity',
-        date: formatDateDisplay(lad.date),
+        title: getStringField(l.row, 'Title') || 'Unknown activity',
+        date: formatDateDisplay(l.date),
         durationSeconds,
-        calories: getNumberField(lad.row, 'Calories'),
+        calories: getNumberField(l.row, 'Calories'),
       };
     }
   }
