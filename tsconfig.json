@@ -1,3 +1,4 @@
+// tsconfig.json
 {
   "compilerOptions": {
     "strict": true,
@@ -15,17 +16,11 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
 
-    // Keep strong safety; you're already guarding indexes/optionals in code
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
-
-    // Build stability/perf
     "skipLibCheck": true,
-
-    // Nice to have
     "useUnknownInCatchVariables": true,
 
-    // Next plugin for type hints
     "plugins": [{ "name": "next" }]
   },
   "include": [
