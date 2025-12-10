@@ -204,9 +204,12 @@ function buildHeaderMap(rows: CsvRow[]): {
 
   const headers = Object.keys(rows[0] ?? {});
   const reverse: Record<string, Canonical> = {};
-  const aliasBag: Record<Canonical, Set<string>> = Object.fromEntries(
-    (CANONICAL_KEYS as readonly string[]).map(k => [k as Canonical, new Set<string>(SEED_ALIASES[k as Canonical] ?? [])])
-  ) as any;
+  const aliasBag = Object.fromEntries(
+    (CANONICAL_KEYS as readonly string[]).map(k => [
+      k as Canonical,
+      new Set<string>(SEED_ALIASES[k as Canonical] ?? []),
+    ])
+  ) as Record<Canonical, Set<string>>;
 
   const hasLegend = headers.includes('English header');
   const filteredRows: CsvRow[] = [];
@@ -275,8 +278,8 @@ function remapRowsToCanonical(rows: CsvRow[], map: Record<string, Canonical>): C
 /* ------------------------ Parsing + units ------------------------ */
 
 const EARTH_CIRCUMFERENCE_MI = 24901;
-const MARATHON_MI = 26.2188;
-const FIVEK_MI = 3.10686;
+//const MARATHON_MI = 26.2188;
+//const FIVEK_MI = 3.10686;
 const EVEREST_FT = 29032;
 
 /** Locale-robust numeric parser */
@@ -961,6 +964,13 @@ export default function Home() {
 
   const m = metrics;
 
+  const step = stepsMetrics;
+  const totalStepsStr = step ? step.totalSteps.toLocaleString() : null;
+  const avgStepsStr =
+    step && step.avgStepsPerDay
+      ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
+      : null;
+
   const distanceStr = m ? `${m.totalDistanceMi.toFixed(2)} mi` : '--';
   const earthPercentStr = m ? `${m.earthPercent.toFixed(2)}%` : '--';
   const totalTimeStr = m ? formatDurationLong(m.totalActivitySeconds) : '--';
@@ -1102,6 +1112,12 @@ export default function Home() {
                     <div className="text-4xl sm:text-5xl md:text-6xl font-semibold">{distanceStr}</div>
                     <div className="text-md text-zinc-300 mt-2">
                       That&apos;s <span className="font-semibold">{earthPercentStr}</span> of the way around Earth.
+                      {step && totalStepsStr && (
+                        <div className="text-lg text-zinc-300 mt-1">
+                          <span className="font-semibold text-lg sm:text-xl">{totalStepsStr} steps</span>
+                          {avgStepsStr && <> <span className="font-semibold text-lg sm:text-xl">{avgStepsStr}</span></>}
+                        </div>
+                      )}
                     </div>
                   </div>
 
