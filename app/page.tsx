@@ -130,6 +130,14 @@ type HighestCalorieDetail = {
   durationSeconds: number;
 };
 
+/** Narrower for Vercel/TS strict: avoids `never` when checking presence. */
+function isLongestActivityDetail(
+  x: unknown
+): x is LongestActivityDetail {
+  // why: build-time TS on Vercel sometimes loses control-flow narrowing
+  return !!x && typeof (x as any).durationSeconds === 'number';
+}
+
 const EARTH_CIRCUMFERENCE_MI = 24901;
 const MARATHON_MI = 26.2188;
 const FIVEK_MI = 3.10686;
@@ -534,8 +542,9 @@ function computeMetrics(rows: any[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
+  // ↓↓↓ Fix: use type guard to avoid `never` on Vercel build
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
+  if (isLongestActivityDetail(longestActivityDetail) && longestActivityDetail.durationSeconds > 0) {
     longestActivitySummary = {
       title: String(longestActivityDetail.row['Title'] ?? 'Unknown activity'),
       date: formatDateDisplay(longestActivityDetail.date),
