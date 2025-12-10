@@ -59,6 +59,11 @@ type Metrics = {
   topActivityTypes?: ActivityTypeSummary[];
   startDateDisplay?: string;
   endDateDisplay?: string;
+  grindDay?: { 
+    name: string; 
+    totalHours: number; 
+    activities: number 
+  };
 
   // By-sport breakdown
   runDistanceMi?: number;
@@ -71,7 +76,7 @@ type Metrics = {
   swimSeconds?: number;
   swimSessions?: number;
 
-  // NEW: per-sport longest-by-distance
+  // Per-sport longest-by-distance
   runLongest?: { title: string; distanceMi: number };
   bikeLongest?: { title: string; distanceMi: number };
   swimLongest?: { title: string; distanceM: number };
@@ -112,13 +117,23 @@ type StatCardProps = {
   helper?: string;
 };
 
-const EARTH_CIRCUMFERENCE_MI = 24901;
-// NEW: simple equivalence constants
-const MARATHON_MI = 26.2188; // 42.195 km
-const FIVEK_MI = 3.10686;    // 5 km
-const EVEREST_FT = 29032;    // 8,848.86 m
+// Internal accumulators (why: prevent `never` under strict + noUncheckedIndexedAccess)
+type LongestActivityDetail = {
+  row: Record<string, unknown>;
+  durationSeconds: number;
+  date: Date | null;
+};
+type HighestCalorieDetail = {
+  row: Record<string, unknown>;
+  calories: number;
+  date: Date | null;
+  durationSeconds: number;
+};
 
-// ---------- helpers ----------
+const EARTH_CIRCUMFERENCE_MI = 24901;
+const MARATHON_MI = 26.2188;
+const FIVEK_MI = 3.10686;
+const EVEREST_FT = 29032;
 
 function parseNumber(value: any): number {
   if (value == null) return 0;
@@ -158,7 +173,6 @@ function formatDurationLong(totalSeconds: number): string {
   const hours = Math.floor(s / 3600);
   s -= hours * 3600;
   const minutes = Math.floor(s / 60);
-
   const parts: string[] = [];
   if (days) parts.push(`${days}day${days !== 1 ? 's' : ''}`);
   if (hours) parts.push(`${hours}hrs`);
@@ -173,7 +187,6 @@ function formatDurationHMS(totalSeconds: number): string {
   const minutes = Math.floor(s / 60);
   s -= minutes * 60;
   const seconds = s;
-
   const parts: string[] = [];
   if (hours) parts.push(`${hours}hrs`);
   if (minutes) parts.push(`${minutes}m`);
@@ -199,10 +212,7 @@ function formatPacePerMile(totalSeconds: number, distanceMi: number): string {
   return `${min}:${sec.toString().padStart(2, '0')}/mi`;
 }
 
-function formatSwimPacePer100m(
-  totalSeconds: number,
-  meters: number,
-): string {
+function formatSwimPacePer100m(totalSeconds: number, meters: number): string {
   if (!totalSeconds || !meters) return '--';
   const units = meters / 100;
   if (!units) return '--';
@@ -217,10 +227,8 @@ function parseSleepDurationToMinutes(value: any): number {
   if (!value) return 0;
   const s = String(value).trim();
   if (!s) return 0;
-
   const match = s.match(/(?:(\d+)h)?\s*(?:(\d+)min)?/i);
   if (!match) return 0;
-
   const hours = match[1] ? parseInt(match[1], 10) : 0;
   const mins = match[2] ? parseInt(match[2], 10) : 0;
   return hours * 60 + mins;
@@ -241,30 +249,14 @@ const MONTH_NAMES = [
   'December',
 ];
 
-// distance conversion: meters → miles for specific sports
 function distanceMilesFromRow(row: any): number {
   const raw = parseNumber(row['Distance']);
   const activityType = String(row['Activity Type'] || '').trim();
-
   if (!raw || !activityType) return 0;
-
-  const meterActivities = [
-    'Track Running',
-    'Pool Swim',
-    'Swimming',
-    'Open Water Swimming',
-  ];
-
-  if (meterActivities.includes(activityType)) {
-    // meters → miles
-    return raw / 1609.34;
-  }
-
-  // everything else already in miles
+  const meterActivities = ['Track Running', 'Pool Swim', 'Swimming', 'Open Water Swimming'];
+  if (meterActivities.includes(activityType)) return raw / 1609.34;
   return raw;
 }
-
-// ---------- activity metrics from activity CSV ----------
 
 function computeMetrics(rows: any[]): Metrics {
   let totalDistanceMi = 0;
@@ -282,8 +274,7 @@ function computeMetrics(rows: any[]): Metrics {
   const activityCounts: Record<string, number> = {};
   const typeDistance: Record<string, number> = {};
   const typeSeconds: Record<string, number> = {};
-  const monthSeconds: Record<string, { seconds: number; sampleDate: Date }> =
-    {};
+  const monthSeconds: Record<string, { seconds: number; sampleDate: Date }> = {};
   const daySet = new Set<string>();
 
   let earliestDate: Date | null = null;
@@ -302,20 +293,11 @@ function computeMetrics(rows: any[]): Metrics {
   let swimSeconds = 0;
   let swimSessions = 0;
 
-  // Internal accumulators
-  let longestActivityDetail: {
-    row: any;
-    durationSeconds: number;
-    date: Date | null;
-  } | null = null;
-  let highestCalorieDetail: {
-    row: any;
-    calories: number;
-    date: Date | null;
-    durationSeconds: number;
-  } | null = null;
+  // Typed accumulators (why: avoid `never`)
+  let longestActivityDetail: LongestActivityDetail | null = null;
+  let highestCalorieDetail: HighestCalorieDetail | null = null;
 
-  // NEW: per-sport longest-by-distance (track max by distance)
+  // Per-sport longest-by-distance
   let runLongest: { row: any; distanceMi: number } | null = null;
   let bikeLongest: { row: any; distanceMi: number } | null = null;
   let swimLongest: { row: any; distanceM: number } | null = null;
@@ -324,15 +306,16 @@ function computeMetrics(rows: any[]): Metrics {
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
   const swimTypes = ['Pool Swim', 'Swimming', 'Open Water Swimming'];
 
+  const weekdayAgg: { seconds: number; count: number }[] = Array.from(
+    { length: 7 },
+    () => ({ seconds: 0, count: 0 }),
+  );
+
   rows.forEach((row) => {
     const activityType = String(row['Activity Type'] || '').trim();
 
     const hasAnyData =
-      activityType ||
-      row['Distance'] ||
-      row['Time'] ||
-      row['Elapsed Time'] ||
-      row['Calories'];
+      activityType || row['Distance'] || row['Time'] || row['Elapsed Time'] || row['Calories'];
     if (!hasAnyData) return;
 
     sessions += 1;
@@ -365,13 +348,10 @@ function computeMetrics(rows: any[]): Metrics {
 
     if (activityType) {
       activityCounts[activityType] = (activityCounts[activityType] || 0) + 1;
-      typeDistance[activityType] =
-        (typeDistance[activityType] || 0) + distanceMi;
-      typeSeconds[activityType] =
-        (typeSeconds[activityType] || 0) + timeSeconds;
+      typeDistance[activityType] = (typeDistance[activityType] || 0) + distanceMi;
+      typeSeconds[activityType] = (typeSeconds[activityType] || 0) + timeSeconds;
     }
 
-    // Date-based stuff
     const date = parseDate(row['Date']);
     if (date) {
       const isoDay = date.toISOString().slice(0, 10);
@@ -387,29 +367,26 @@ function computeMetrics(rows: any[]): Metrics {
       monthSeconds[monthKey].seconds += timeSeconds;
     }
 
-    // Longest & highest-calorie activities (by duration / calories)
     const durationSeconds = timeSeconds;
-    if (
-      durationSeconds > 0 &&
-      (!longestActivityDetail ||
-        durationSeconds > longestActivityDetail.durationSeconds)
-    ) {
-      longestActivityDetail = { row, durationSeconds, date };
+    if (durationSeconds > 0) {
+      if (!longestActivityDetail || durationSeconds > longestActivityDetail.durationSeconds) {
+        longestActivityDetail = { row, durationSeconds, date: date ?? null };
+      }
     }
 
-    if (
-      calories > 0 &&
-      (!highestCalorieDetail || calories > highestCalorieDetail.calories)
-    ) {
-      highestCalorieDetail = {
-        row,
-        calories,
-        date,
-        durationSeconds,
-      };
+    if (date) {
+      const dow = date.getDay(); // 0=Sun..6=Sat
+      // non-null assertion is fine with noUncheckedIndexedAccess
+        weekdayAgg[dow]!.seconds += timeSeconds;
+        weekdayAgg[dow]!.count += 1;
     }
 
-    // By-sport accumulation + NEW: longest-by-distance per sport
+    if (calories > 0) {
+      if (!highestCalorieDetail || calories > highestCalorieDetail.calories) {
+        highestCalorieDetail = { row, calories, date: date ?? null, durationSeconds };
+      }
+    }
+
     if (runTypes.includes(activityType)) {
       runDistanceMi += distanceMi;
       runSeconds += timeSeconds;
@@ -429,7 +406,7 @@ function computeMetrics(rows: any[]): Metrics {
     }
 
     if (swimTypes.includes(activityType)) {
-      const meters = parseNumber(row['Distance']); // swimming distance is meters
+      const meters = parseNumber(row['Distance']); // swim distances are meters
       swimMeters += meters;
       swimSeconds += timeSeconds;
       swimSessions += 1;
@@ -444,24 +421,22 @@ function computeMetrics(rows: any[]): Metrics {
   const activityNames = Object.keys(activityCounts);
   if (activityNames.length) {
     activityNames.sort((a, b) => activityCounts[b] - activityCounts[a]);
-    const name = activityNames[0];
-    favoriteActivity = { name, count: activityCounts[name] };
+    const name = activityNames[0]!;
+    favoriteActivity = { name, count: activityCounts[name]! };
   }
 
   // Most active month
   let mostActiveMonth: Metrics['mostActiveMonth'] | undefined;
   const monthKeys = Object.keys(monthSeconds);
   if (monthKeys.length) {
-    monthKeys.sort(
-      (a, b) => monthSeconds[b].seconds - monthSeconds[a].seconds,
-    );
-    const key = monthKeys[0];
+    monthKeys.sort((a, b) => monthSeconds[b]!.seconds - monthSeconds[a]!.seconds);
+    const key = monthKeys[0]!;
     const [, monthIdxStr] = key.split('-');
-    const monthIdx = parseInt(monthIdxStr, 10);
-    const name = `${MONTH_NAMES[monthIdx]}`;
+    const monthIdx = parseInt(monthIdxStr!, 10);
+    const monthName = MONTH_NAMES[Number.isFinite(monthIdx) ? monthIdx : 0] ?? 'Unknown';
     mostActiveMonth = {
-      name,
-      totalHours: monthSeconds[key].seconds / 3600,
+      name: monthName,
+      totalHours: monthSeconds[key]!.seconds / 3600,
     };
   }
 
@@ -469,20 +444,20 @@ function computeMetrics(rows: any[]): Metrics {
   let longestStreak: Metrics['longestStreak'];
   const daysSorted = Array.from(daySet).sort();
   if (daysSorted.length) {
+    const firstDay = daysSorted[0]!;
     let bestLen = 1;
-    let bestStart = daysSorted[0];
-    let bestEnd = daysSorted[0];
+    let bestStart = firstDay;
+    let bestEnd = firstDay;
 
     let curLen = 1;
-    let curStart = daysSorted[0];
+    let curStart = firstDay;
 
     const toDate = (iso: string) => new Date(iso + 'T00:00:00');
 
     for (let i = 1; i < daysSorted.length; i++) {
-      const prev = toDate(daysSorted[i - 1]);
-      const curr = toDate(daysSorted[i]);
-      const diffDays =
-        (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+      const prev = toDate(daysSorted[i - 1]!);
+      const curr = toDate(daysSorted[i]!);
+      const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
 
       if (Math.round(diffDays) === 1) {
         curLen += 1;
@@ -490,17 +465,17 @@ function computeMetrics(rows: any[]): Metrics {
         if (curLen > bestLen) {
           bestLen = curLen;
           bestStart = curStart;
-          bestEnd = daysSorted[i - 1];
+          bestEnd = daysSorted[i - 1]!;
         }
         curLen = 1;
-        curStart = daysSorted[i];
+        curStart = daysSorted[i]!;
       }
     }
 
     if (curLen > bestLen) {
       bestLen = curLen;
       bestStart = curStart;
-      bestEnd = daysSorted[daysSorted.length - 1];
+      bestEnd = daysSorted[daysSorted.length - 1]!;
     }
 
     const startDate = toDate(bestStart);
@@ -513,16 +488,37 @@ function computeMetrics(rows: any[]): Metrics {
     };
   }
 
-  const avgHr = avgHrCount ? avgHrSum / avgHrCount : undefined;
-  const earthPercent =
-    totalDistanceMi > 0
-      ? (totalDistanceMi / EARTH_CIRCUMFERENCE_MI) * 100
-      : 0;
+    const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    let bestIdx = -1;
+    for (let i = 0; i < 7; i++) {
+      const cur = weekdayAgg[i]!;
+      if (cur.count === 0) continue;
+      if (bestIdx === -1) {
+        bestIdx = i;
+        continue;
+      }
+      const best = weekdayAgg[bestIdx]!;
+      // primary: higher count; tie-breaker: more seconds
+      if (cur.count > best.count || (cur.count === best.count && cur.seconds > best.seconds)) {
+        bestIdx = i;
+      }
+    }
 
-  const avgDistanceMi =
-    sessions > 0 ? totalDistanceMi / sessions : undefined;
-  const avgDurationSeconds =
-    sessions > 0 ? totalActivitySeconds / sessions : undefined;
+    let grindDay: Metrics['grindDay'];
+    if (bestIdx !== -1) {
+      const best = weekdayAgg[bestIdx]!;
+      grindDay = {
+        name: WEEKDAY_NAMES[bestIdx] ?? 'Unknown',
+        totalHours: best.seconds / 3600,
+        activities: best.count,
+      };
+    }
+
+  const avgHr = avgHrCount ? avgHrSum / avgHrCount : undefined;
+  const earthPercent = totalDistanceMi > 0 ? (totalDistanceMi / EARTH_CIRCUMFERENCE_MI) * 100 : 0;
+
+  const avgDistanceMi = sessions > 0 ? totalDistanceMi / sessions : undefined;
+  const avgDurationSeconds = sessions > 0 ? totalActivitySeconds / sessions : undefined;
 
   const typeNames = Object.keys(activityCounts);
   const activityTypesCount = typeNames.length;
@@ -530,7 +526,7 @@ function computeMetrics(rows: any[]): Metrics {
   if (activityTypesCount) {
     const arr: ActivityTypeSummary[] = typeNames.map((name) => ({
       name,
-      count: activityCounts[name],
+      count: activityCounts[name] || 0,
       totalDistanceMi: typeDistance[name] || 0,
       totalSeconds: typeSeconds[name] || 0,
     }));
@@ -538,55 +534,39 @@ function computeMetrics(rows: any[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
-  // Build longest activity summary
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
   if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
     longestActivitySummary = {
-      title: String(
-        longestActivityDetail.row['Title'] || 'Unknown activity',
-      ),
+      title: String(longestActivityDetail.row['Title'] ?? 'Unknown activity'),
       date: formatDateDisplay(longestActivityDetail.date),
       durationSeconds: longestActivityDetail.durationSeconds,
-      calories: parseNumber(longestActivityDetail.row['Calories']),
+      calories: parseNumber((longestActivityDetail.row as any)['Calories']),
     };
   }
 
-  // Build highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
   if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
     highestCalorieSummary = {
-      title: String(
-        highestCalorieDetail.row['Title'] || 'Unknown activity',
-      ),
+      title: String(highestCalorieDetail.row['Title'] ?? 'Unknown activity'),
       date: formatDateDisplay(highestCalorieDetail.date),
       calories: highestCalorieDetail.calories,
       durationSeconds: highestCalorieDetail.durationSeconds,
     };
   }
 
-  // NEW: build per-sport longest summaries
   const runLongestOut =
     runLongest && runLongest.distanceMi > 0
-      ? {
-          title: String(runLongest.row['Title'] || 'Longest run'),
-          distanceMi: runLongest.distanceMi,
-        }
+      ? { title: String(runLongest.row['Title'] ?? 'Longest run'), distanceMi: runLongest.distanceMi }
       : undefined;
 
   const bikeLongestOut =
     bikeLongest && bikeLongest.distanceMi > 0
-      ? {
-          title: String(bikeLongest.row['Title'] || 'Longest ride'),
-          distanceMi: bikeLongest.distanceMi,
-        }
+      ? { title: String(bikeLongest.row['Title'] ?? 'Longest ride'), distanceMi: bikeLongest.distanceMi }
       : undefined;
 
   const swimLongestOut =
     swimLongest && swimLongest.distanceM > 0
-      ? {
-          title: String(swimLongest.row['Title'] || 'Longest swim'),
-          distanceM: swimLongest.distanceM,
-        }
+      ? { title: String(swimLongest.row['Title'] ?? 'Longest swim'), distanceM: swimLongest.distanceM }
       : undefined;
 
   return {
@@ -610,6 +590,8 @@ function computeMetrics(rows: any[]): Metrics {
     topActivityTypes,
     startDateDisplay: formatDateDisplay(earliestDate),
     endDateDisplay: formatDateDisplay(latestDate),
+    grindDay,
+
     runDistanceMi: runDistanceMi || undefined,
     runSeconds: runSeconds || undefined,
     runSessions: runSessions || undefined,
@@ -619,14 +601,12 @@ function computeMetrics(rows: any[]): Metrics {
     swimMeters: swimMeters || undefined,
     swimSeconds: swimSeconds || undefined,
     swimSessions: swimSessions || undefined,
-    // NEW:
+
     runLongest: runLongestOut,
     bikeLongest: bikeLongestOut,
     swimLongest: swimLongestOut,
   };
 }
-
-// ---------- sleep metrics from Sleep CSV ----------
 
 function computeSleepMetrics(rows: any[]): SleepMetrics {
   let totalScore = 0;
@@ -640,9 +620,7 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
   rows.forEach((row) => {
     const score = parseNumber(row['Avg Score']);
     const label = String(row['Date'] || '').trim();
-    const durationMinutes = parseSleepDurationToMinutes(
-      row['Avg Duration'],
-    );
+    const durationMinutes = parseSleepDurationToMinutes(row['Avg Duration']);
 
     if (!score && !durationMinutes && !label) return;
 
@@ -658,10 +636,7 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
       worstScoreWeek = { label, score, durationMinutes };
     }
 
-    if (
-      !longestSleepWeek ||
-      durationMinutes > longestSleepWeek.durationMinutes
-    ) {
+    if (!longestSleepWeek || durationMinutes > longestSleepWeek.durationMinutes) {
       longestSleepWeek = { label, durationMinutes, score };
     }
   });
@@ -676,15 +651,13 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
   };
 }
 
-// ---------- steps metrics from Steps CSV ----------
-
 type RawRow = Record<string, any>;
 
 function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
   let periods = 0;
   let totalSteps = 0;
   let totalDays = 0;
-  let bestWeek: StepsMetrics['bestWeek'] | undefined;
+  let bestWeek: StepsMetrics['bestWeek'] | null = null;
 
   const rowCount = rows.length || 0;
   let looksWeekly = rowCount > 0 && rowCount <= 60;
@@ -728,8 +701,7 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
         row[''] ??
         '') + '';
 
-    const daysInPeriod =
-      parseNumber(row['Days']) || (looksWeekly ? 7 : 1);
+    const daysInPeriod = parseNumber(row['Days']) || (looksWeekly ? 7 : 1);
 
     periods += 1;
     totalSteps += steps;
@@ -743,8 +715,7 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     }
   });
 
-  const days =
-    totalDays || (looksWeekly ? periods * 7 : periods || 1);
+  const days = totalDays || (looksWeekly ? periods * 7 : periods || 1);
   const avgStepsPerDay = totalSteps / days;
 
   return {
@@ -754,8 +725,6 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     bestWeek,
   };
 }
-
-// ---------- UI components ----------
 
 function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
   return (
@@ -778,14 +747,10 @@ export default function Home() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [sleepMetrics, setSleepMetrics] = useState<SleepMetrics | null>(
-    null,
-  );
+  const [sleepMetrics, setSleepMetrics] = useState<SleepMetrics | null>(null);
   const [sleepError, setSleepError] = useState<string | null>(null);
 
-  const [stepsMetrics, setStepsMetrics] = useState<StepsMetrics | null>(
-    null,
-  );
+  const [stepsMetrics, setStepsMetrics] = useState<StepsMetrics | null>(null);
   const [stepsError, setStepsError] = useState<string | null>(null);
 
   const pageRef = useRef<HTMLDivElement | null>(null);
@@ -1026,21 +991,7 @@ export default function Home() {
       ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters)
       : '--';
 
-  // NEW: per-sport longest strings
-  const runLongestStr =
-    m?.runLongest
-      ? `${m.runLongest.title} — ${m.runLongest.distanceMi.toFixed(1)} mi`
-      : null;
-  const bikeLongestStr =
-    m?.bikeLongest
-      ? `${m.bikeLongest.title} — ${m.bikeLongest.distanceMi.toFixed(1)} mi`
-      : null;
-  const swimLongestStr =
-    m?.swimLongest
-      ? `${m.swimLongest.title} — ${m.swimLongest.distanceM.toLocaleString()} m`
-      : null;
-
-  // Sleep strings
+  // Steps
   const s = sleepMetrics;
   const avgSleepScoreStr = s
     ? s.avgScore.toFixed(1)
@@ -1065,7 +1016,6 @@ export default function Home() {
         : 'C+'
       : '--';
 
-  // Steps strings
   const step = stepsMetrics;
   const totalStepsStr = step
     ? step.totalSteps.toLocaleString()
@@ -1075,7 +1025,6 @@ export default function Home() {
       ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
       : null;
 
-  // NEW: marathon / 5k equivalents
   const marathonEqStr =
     m && m.totalDistanceMi
       ? (m.totalDistanceMi / MARATHON_MI).toFixed(1)
@@ -1085,7 +1034,6 @@ export default function Home() {
       ? (m.totalDistanceMi / FIVEK_MI).toFixed(1)
       : null;
 
-  // NEW: Everests
   const everestsStr =
     m?.totalAscent != null && m.totalAscent > 0
       ? (m.totalAscent / EVEREST_FT).toFixed(2)
@@ -1097,7 +1045,7 @@ export default function Home() {
       className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white"
     >
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-        {/* Top header + upload */}
+        {/* Header */}
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">
@@ -1107,7 +1055,6 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col items-start sm:items-end gap-2">
-            {/* Activities upload */}
             <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-4 h-4" />
               <span>Upload Garmin activities CSV</span>
@@ -1119,7 +1066,6 @@ export default function Home() {
               />
             </label>
 
-            {/* Sleep upload */}
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Sleep CSV (optional)</span>
@@ -1131,7 +1077,6 @@ export default function Home() {
               />
             </label>
 
-            {/* Steps upload */}
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Steps CSV (optional)</span>
@@ -1143,7 +1088,6 @@ export default function Home() {
               />
             </label>
 
-            {/* Download button */}
             {metrics && (
               <button
                 type="button"
@@ -1180,9 +1124,8 @@ export default function Home() {
 
         {metrics && (
           <div className="space-y-8">
-            {/* Hero + key stats grid */}
+            {/* Distance */}
             <section className="grid gap-5 md:grid-cols-3">
-              {/* Hero distance tile */}
               <div className="md:col-span-2 bg-gradient-to-br from-indigo-600/40 via-purple-700/30 to-zinc-900/90 border border-purple-500/40 rounded-3xl p-6 sm:p-7 shadow-[0_0_50px_rgba(0,0,0,0.9)]">
                 <div className="flex items-center justify-between gap-4 mb-6">
                   <div className="flex items-center gap-3">
@@ -1213,7 +1156,6 @@ export default function Home() {
                       <span className="font-semibold">{earthPercentStr}</span>{' '}
                       of the way around Earth.
                     </div>
-                    {/* ENLARGED numbers + steps/day */}
                     {step && totalStepsStr && (
                       <div className="text-lg text-zinc-300 mt-1">
                         <span className="font-semibold text-lg sm:text-xl">
@@ -1227,10 +1169,8 @@ export default function Home() {
                             </span>
                           </>
                         )}
-                        .
                       </div>
                     )}
-                    {/* NEW: marathons / 5Ks line */}
                     {marathonEqStr && fiveKEqStr && (
                       <div className="text-md text-zinc-300 mt-1">
                         That&apos;s about{' '}
@@ -1258,7 +1198,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Quick stats column */}
               <div className="flex flex-col gap-4">
                 <StatCard
                   icon={LineChart}
@@ -1267,15 +1206,19 @@ export default function Home() {
                   helper="Every recording counts as one."
                 />
                 <StatCard
-                  icon={Layers}
-                  value={typesCountStr}
-                  label="Activity types"
-                  helper="Different sports you tracked this year."
+                  icon={CalendarDays}
+                  value={m?.grindDay ? m.grindDay.name : '--'}
+                  label="Grind day"
+                    helper={
+                      m?.grindDay
+                      ? `${m.grindDay.totalHours.toFixed(1)} hrs · ${m.grindDay.activities} activities`
+                      : undefined
+                    }
                 />
               </div>
             </section>
 
-            {/* Performance + effort tiles */}
+            {/* HR + calories */}
             <section className="grid gap-5 md:grid-cols-3">
               <StatCard
                 icon={HeartPulse}
@@ -1297,7 +1240,7 @@ export default function Home() {
               />
             </section>
 
-            {/* Averages + cadence */}
+            {/* Averages */}
             <section className="grid gap-5 md:grid-cols-3">
               <StatCard
                 icon={Timer}
@@ -1319,7 +1262,7 @@ export default function Home() {
               />
             </section>
 
-            {/* Sport-specific row: Running / Cycling / Swimming */}
+            {/* Sports */}
             <section className="grid gap-5 md:grid-cols-3">
               {/* Running */}
               <div className="bg-gradient-to-br from-red-600/40 via-orange-500/30 to-zinc-900/90 border border-red-400/50 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
@@ -1349,7 +1292,6 @@ export default function Home() {
                     <span className="text-zinc-400">Pace</span>
                     <span className="font-semibold">{runPaceStr}</span>
                   </div>
-                  {/* NEW: longest run */}
                   {m?.runLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
@@ -1392,7 +1334,6 @@ export default function Home() {
                     <span className="text-zinc-400">Avg speed</span>
                     <span className="font-semibold">{bikeSpeedStr}</span>
                   </div>
-                  {/* NEW: longest ride */}
                   {m?.bikeLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
@@ -1435,7 +1376,6 @@ export default function Home() {
                     <span className="text-zinc-400">Pace</span>
                     <span className="font-semibold">{swimPaceStr}</span>
                   </div>
-                  {/* NEW: longest swim */}
                   {m?.swimLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
@@ -1451,7 +1391,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* Big moments row */}
+            {/* Big moments */}
             <section className="grid gap-5 md:grid-cols-2">
               {longestActivity && (
                 <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
@@ -1594,9 +1534,8 @@ export default function Home() {
                     </p>
                   </div>
                 </div>
-                {/* NEW: Everests equivalence */}
                 {everestsStr && (
-                  <div className="text-lg text-zinc-400 mt-2">
+                  <div className="text-md text-zinc-400 mt-2">
                     ≈ <span className="font-semibold text-zinc-200">{everestsStr}</span>{' '}
                     Mount Everests
                   </div>
@@ -1604,7 +1543,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* By activity type (top 3) */}
+            {/* By activity type */}
             {topTypes.length > 0 && (
               <section className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
                 <div className="flex items-center justify-between mb-4">
@@ -1652,7 +1591,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Sleep Wrapped section (independent of activities) */}
+        {/* Sleep */}
         {sleepMetrics && (
           <section className="mt-8 bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
             <div className="flex items-center justify-between mb-4">
@@ -1724,7 +1663,6 @@ export default function Home() {
           </section>
         )}
 
-        {/* Footer */}
         <footer className="mt-10 text-xs text-zinc-500">
           <p>© 2025 Jordan Lindsay. Not affiliated with Garmin Ltd.</p>
         </footer>
