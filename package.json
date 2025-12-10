@@ -23,11 +23,12 @@
     "@types/papaparse": "^5.5.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "@typescript-eslint/eslint-plugin": "^8.12.2",
+    "@typescript-eslint/parser": "^8.12.2",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
-    "@typescript-eslint/eslint-plugin": "^8.12.2",
     "eslint-plugin-unused-imports": "^4.0.1",
-    "tailwindcss": "^4",
     "typescript": "^5"
   }
 }
