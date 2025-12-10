@@ -544,12 +544,13 @@ function computeMetrics(rows: any[]): Metrics {
 
   // ↓↓↓ Fix: use type guard to avoid `never` on Vercel build
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  if (isLongestActivityDetail(longestActivityDetail) && longestActivityDetail.durationSeconds > 0) {
+  const lad = longestActivityDetail; // why: stabilize control-flow narrowing across RHS
+  if (isLongestActivityDetail(lad) && lad.durationSeconds > 0) {
     longestActivitySummary = {
-      title: String(longestActivityDetail.row['Title'] ?? 'Unknown activity'),
-      date: formatDateDisplay(longestActivityDetail.date),
-      durationSeconds: longestActivityDetail.durationSeconds,
-      calories: parseNumber((longestActivityDetail.row as any)['Calories']),
+      title: String(lad.row['Title'] ?? 'Unknown activity'),
+      date: formatDateDisplay(lad.date),
+      durationSeconds: lad.durationSeconds,
+      calories: parseNumber((lad.row as any)['Calories']),
     };
   }
 
