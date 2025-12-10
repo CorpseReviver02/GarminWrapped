@@ -16,7 +16,6 @@ import {
   Dumbbell,
   Zap,
   Upload,
-  Layers,
   Bike,
   Waves,
 } from 'lucide-react';
@@ -59,13 +58,12 @@ type Metrics = {
   topActivityTypes?: ActivityTypeSummary[];
   startDateDisplay?: string;
   endDateDisplay?: string;
-  grindDay?: { 
-    name: string; 
-    totalHours: number; 
-    activities: number 
+  grindDay?: {
+    name: string;
+    totalHours: number;
+    activities: number;
   };
 
-  // By-sport breakdown
   runDistanceMi?: number;
   runSeconds?: number;
   runSessions?: number;
@@ -76,7 +74,6 @@ type Metrics = {
   swimSeconds?: number;
   swimSessions?: number;
 
-  // Per-sport longest-by-distance
   runLongest?: { title: string; distanceMi: number };
   bikeLongest?: { title: string; distanceMi: number };
   swimLongest?: { title: string; distanceM: number };
@@ -86,21 +83,9 @@ type SleepMetrics = {
   weeks: number;
   avgScore: number;
   avgDurationMinutes: number;
-  bestScoreWeek: {
-    label: string;
-    score: number;
-    durationMinutes: number;
-  } | null;
-  worstScoreWeek: {
-    label: string;
-    score: number;
-    durationMinutes: number;
-  } | null;
-  longestSleepWeek: {
-    label: string;
-    durationMinutes: number;
-    score: number;
-  } | null;
+  bestScoreWeek: { label: string; score: number; durationMinutes: number } | null;
+  worstScoreWeek: { label: string; score: number; durationMinutes: number } | null;
+  longestSleepWeek: { label: string; durationMinutes: number; score: number } | null;
 };
 
 type StepsMetrics = {
@@ -117,7 +102,7 @@ type StatCardProps = {
   helper?: string;
 };
 
-// Internal accumulators (why: prevent `never` under strict + noUncheckedIndexedAccess)
+// Internal accumulators
 type LongestActivityDetail = {
   row: Record<string, unknown>;
   durationSeconds: number;
@@ -130,11 +115,8 @@ type HighestCalorieDetail = {
   durationSeconds: number;
 };
 
-/** Narrower for Vercel/TS strict: avoids `never` when checking presence. */
-function isLongestActivityDetail(
-  x: unknown
-): x is LongestActivityDetail {
-  // why: build-time TS on Vercel sometimes loses control-flow narrowing
+/** Type guard (why: stabilize CI build narrowing) */
+function isLongestActivityDetail(x: unknown): x is LongestActivityDetail {
   return !!x && typeof (x as any).durationSeconds === 'number';
 }
 
@@ -154,21 +136,17 @@ function parseTimeToSeconds(value: any): number {
   if (!value) return 0;
   const s = String(value).trim();
   if (!s) return 0;
-
   const parts = s.split(':').map((p) => parseInt(p, 10));
   if (parts.some((p) => Number.isNaN(p))) return 0;
 
   if (parts.length === 3) {
-    // why: noUncheckedIndexedAccess makes destructuring possibly undefined
     const [h, m, sec] = parts as [number, number, number];
     return h * 3600 + m * 60 + sec;
   }
-
   if (parts.length === 2) {
     const [m, sec] = parts as [number, number];
     return m * 60 + sec;
   }
-
   return 0;
 }
 
@@ -248,18 +226,8 @@ function parseSleepDurationToMinutes(value: any): number {
 }
 
 const MONTH_NAMES = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
 ];
 
 function distanceMilesFromRow(row: any): number {
@@ -294,23 +262,15 @@ function computeMetrics(rows: any[]): Metrics {
   let latestDate: Date | null = null;
 
   // By-sport accumulators
-  let runDistanceMi = 0;
-  let runSeconds = 0;
-  let runSessions = 0;
+  let runDistanceMi = 0, runSeconds = 0, runSessions = 0;
+  let bikeDistanceMi = 0, bikeSeconds = 0, bikeSessions = 0;
+  let swimMeters = 0, swimSeconds = 0, swimSessions = 0;
 
-  let bikeDistanceMi = 0;
-  let bikeSeconds = 0;
-  let bikeSessions = 0;
-
-  let swimMeters = 0;
-  let swimSeconds = 0;
-  let swimSessions = 0;
-
-  // Typed accumulators (why: avoid `never`)
+  // Typed accumulators
   let longestActivityDetail: LongestActivityDetail | null = null;
   let highestCalorieDetail: HighestCalorieDetail | null = null;
 
-  // Per-sport longest-by-distance
+  // Per-sport bests
   let runLongest: { row: any; distanceMi: number } | null = null;
   let bikeLongest: { row: any; distanceMi: number } | null = null;
   let swimLongest: { row: any; distanceM: number } | null = null;
@@ -319,10 +279,8 @@ function computeMetrics(rows: any[]): Metrics {
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
   const swimTypes = ['Pool Swim', 'Swimming', 'Open Water Swimming'];
 
-  const weekdayAgg: { seconds: number; count: number }[] = Array.from(
-    { length: 7 },
-    () => ({ seconds: 0, count: 0 }),
-  );
+  const weekdayAgg: { seconds: number; count: number }[] =
+    Array.from({ length: 7 }, () => ({ seconds: 0, count: 0 }));
 
   rows.forEach((row) => {
     const activityType = String(row['Activity Type'] || '').trim();
@@ -336,9 +294,7 @@ function computeMetrics(rows: any[]): Metrics {
     const distanceMi = distanceMilesFromRow(row);
     totalDistanceMi += distanceMi;
 
-    const timeSeconds = parseTimeToSeconds(
-      row['Time'] || row['Moving Time'] || row['Elapsed Time'],
-    );
+    const timeSeconds = parseTimeToSeconds(row['Time'] || row['Moving Time'] || row['Elapsed Time']);
     totalActivitySeconds += timeSeconds;
 
     const calories = parseNumber(row['Calories']);
@@ -360,9 +316,9 @@ function computeMetrics(rows: any[]): Metrics {
     if (maxElev > maxElevation) maxElevation = maxElev;
 
     if (activityType) {
-      activityCounts[activityType] = (activityCounts[activityType] || 0) + 1;
-      typeDistance[activityType] = (typeDistance[activityType] || 0) + distanceMi;
-      typeSeconds[activityType] = (typeSeconds[activityType] || 0) + timeSeconds;
+      activityCounts[activityType] = (activityCounts[activityType] ?? 0) + 1;
+      typeDistance[activityType] = (typeDistance[activityType] ?? 0) + distanceMi;
+      typeSeconds[activityType] = (typeSeconds[activityType] ?? 0) + timeSeconds;
     }
 
     const date = parseDate(row['Date']);
@@ -377,7 +333,7 @@ function computeMetrics(rows: any[]): Metrics {
       if (!monthSeconds[monthKey]) {
         monthSeconds[monthKey] = { seconds: 0, sampleDate: date };
       }
-      monthSeconds[monthKey].seconds += timeSeconds;
+      monthSeconds[monthKey]!.seconds += timeSeconds;
     }
 
     const durationSeconds = timeSeconds;
@@ -388,9 +344,8 @@ function computeMetrics(rows: any[]): Metrics {
     }
 
     if (date) {
-      const dow = date.getDay(); // 0=Sun..6=Sat
-      // non-null assertion is fine with noUncheckedIndexedAccess
-      weekdayAgg[dow]!.seconds += timeSeconds; // reuse instead of re-parsing
+      const dow = date.getDay();
+      weekdayAgg[dow]!.seconds += timeSeconds;
       weekdayAgg[dow]!.count += 1;
     }
 
@@ -404,28 +359,22 @@ function computeMetrics(rows: any[]): Metrics {
       runDistanceMi += distanceMi;
       runSeconds += timeSeconds;
       runSessions += 1;
-      if (!runLongest || distanceMi > runLongest.distanceMi) {
-        runLongest = { row, distanceMi };
-      }
+      if (!runLongest || distanceMi > runLongest.distanceMi) runLongest = { row, distanceMi };
     }
 
     if (bikeTypes.includes(activityType)) {
       bikeDistanceMi += distanceMi;
       bikeSeconds += timeSeconds;
       bikeSessions += 1;
-      if (!bikeLongest || distanceMi > bikeLongest.distanceMi) {
-        bikeLongest = { row, distanceMi };
-      }
+      if (!bikeLongest || distanceMi > bikeLongest.distanceMi) bikeLongest = { row, distanceMi };
     }
 
     if (swimTypes.includes(activityType)) {
-      const meters = parseNumber(row['Distance']); // swim distances are meters
+      const meters = parseNumber(row['Distance']);
       swimMeters += meters;
       swimSeconds += timeSeconds;
       swimSessions += 1;
-      if (!swimLongest || meters > swimLongest.distanceM) {
-        swimLongest = { row, distanceM: meters };
-      }
+      if (!swimLongest || meters > swimLongest.distanceM) swimLongest = { row, distanceM: meters };
     }
   });
 
@@ -433,12 +382,12 @@ function computeMetrics(rows: any[]): Metrics {
   let favoriteActivity: Metrics['favoriteActivity'] | undefined;
   const activityNames = Object.keys(activityCounts);
   if (activityNames.length) {
-    activityNames.sort((a, b) => activityCounts[b] - activityCounts[a]);
+    activityNames.sort((a, b) => (activityCounts[b] ?? 0) - (activityCounts[a] ?? 0));
     const name = activityNames[0]!;
-    favoriteActivity = { name, count: activityCounts[name]! };
+    favoriteActivity = { name, count: (activityCounts[name] ?? 0) };
   }
 
-  // Most active month
+  // Most active month (by time)
   let mostActiveMonth: Metrics['mostActiveMonth'] | undefined;
   const monthKeys = Object.keys(monthSeconds);
   if (monthKeys.length) {
@@ -447,10 +396,7 @@ function computeMetrics(rows: any[]): Metrics {
     const [, monthIdxStr] = key.split('-');
     const monthIdx = parseInt(monthIdxStr!, 10);
     const monthName = MONTH_NAMES[Number.isFinite(monthIdx) ? monthIdx : 0] ?? 'Unknown';
-    mostActiveMonth = {
-      name: monthName,
-      totalHours: monthSeconds[key]!.seconds / 3600,
-    };
+    mostActiveMonth = { name: monthName, totalHours: monthSeconds[key]!.seconds / 3600 };
   }
 
   // Longest streak
@@ -458,13 +404,8 @@ function computeMetrics(rows: any[]): Metrics {
   const daysSorted = Array.from(daySet).sort();
   if (daysSorted.length) {
     const firstDay = daysSorted[0]!;
-    let bestLen = 1;
-    let bestStart = firstDay;
-    let bestEnd = firstDay;
-
-    let curLen = 1;
-    let curStart = firstDay;
-
+    let bestLen = 1, bestStart = firstDay, bestEnd = firstDay;
+    let curLen = 1, curStart = firstDay;
     const toDate = (iso: string) => new Date(iso + 'T00:00:00');
 
     for (let i = 1; i < daysSorted.length; i++) {
@@ -475,20 +416,13 @@ function computeMetrics(rows: any[]): Metrics {
       if (Math.round(diffDays) === 1) {
         curLen += 1;
       } else {
-        if (curLen > bestLen) {
-          bestLen = curLen;
-          bestStart = curStart;
-          bestEnd = daysSorted[i - 1]!;
-        }
-        curLen = 1;
-        curStart = daysSorted[i]!;
+        if (curLen > bestLen) { bestLen = curLen; bestStart = curStart; bestEnd = daysSorted[i - 1]!; }
+        curLen = 1; curStart = daysSorted[i]!;
       }
     }
 
     if (curLen > bestLen) {
-      bestLen = curLen;
-      bestStart = curStart;
-      bestEnd = daysSorted[daysSorted.length - 1]!;
+      bestLen = curLen; bestStart = curStart; bestEnd = daysSorted[daysSorted.length - 1]!;
     }
 
     const startDate = toDate(bestStart);
@@ -501,31 +435,23 @@ function computeMetrics(rows: any[]): Metrics {
     };
   }
 
-    const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    let bestIdx = -1;
-    for (let i = 0; i < 7; i++) {
-      const cur = weekdayAgg[i]!;
-      if (cur.count === 0) continue;
-      if (bestIdx === -1) {
-        bestIdx = i;
-        continue;
-      }
-      const best = weekdayAgg[bestIdx]!;
-      // primary: higher count; tie-breaker: more seconds
-      if (cur.count > best.count || (cur.count === best.count && cur.seconds > best.seconds)) {
-        bestIdx = i;
-      }
+  // Grind day
+  const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  let bestIdx = -1;
+  for (let i = 0; i < 7; i++) {
+    const cur = weekdayAgg[i]!;
+    if (cur.count === 0) continue;
+    if (bestIdx === -1) { bestIdx = i; continue; }
+    const best = weekdayAgg[bestIdx]!;
+    if (cur.count > best.count || (cur.count === best.count && cur.seconds > best.seconds)) {
+      bestIdx = i;
     }
-
-    let grindDay: Metrics['grindDay'];
-    if (bestIdx !== -1) {
-      const best = weekdayAgg[bestIdx]!;
-      grindDay = {
-        name: WEEKDAY_NAMES[bestIdx] ?? 'Unknown',
-        totalHours: best.seconds / 3600,
-        activities: best.count,
-      };
-    }
+  }
+  let grindDay: Metrics['grindDay'];
+  if (bestIdx !== -1) {
+    const best = weekdayAgg[bestIdx]!;
+    grindDay = { name: WEEKDAY_NAMES[bestIdx] ?? 'Unknown', totalHours: best.seconds / 3600, activities: best.count };
+  }
 
   const avgHr = avgHrCount ? avgHrSum / avgHrCount : undefined;
   const earthPercent = totalDistanceMi > 0 ? (totalDistanceMi / EARTH_CIRCUMFERENCE_MI) * 100 : 0;
@@ -539,17 +465,17 @@ function computeMetrics(rows: any[]): Metrics {
   if (activityTypesCount) {
     const arr: ActivityTypeSummary[] = typeNames.map((name) => ({
       name,
-      count: activityCounts[name] || 0,
-      totalDistanceMi: typeDistance[name] || 0,
-      totalSeconds: typeSeconds[name] || 0,
+      count: activityCounts[name] ?? 0,
+      totalDistanceMi: typeDistance[name] ?? 0,
+      totalSeconds: typeSeconds[name] ?? 0,
     }));
     arr.sort((a, b) => b.count - a.count);
     topActivityTypes = arr.slice(0, 3);
   }
 
-  // ↓↓↓ Fix: use type guard to avoid `never` on Vercel build
+  // Longest activity summary (stable narrowing)
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  const lad = longestActivityDetail; // why: stabilize control-flow narrowing across RHS
+  const lad = longestActivityDetail;
   if (isLongestActivityDetail(lad) && lad.durationSeconds > 0) {
     longestActivitySummary = {
       title: String(lad.row['Title'] ?? 'Unknown activity'),
@@ -559,6 +485,7 @@ function computeMetrics(rows: any[]): Metrics {
     };
   }
 
+  // Highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
   if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
     highestCalorieSummary = {
@@ -624,10 +551,7 @@ function computeMetrics(rows: any[]): Metrics {
 }
 
 function computeSleepMetrics(rows: any[]): SleepMetrics {
-  let totalScore = 0;
-  let totalDurationMinutes = 0;
-  let count = 0;
-
+  let totalScore = 0, totalDurationMinutes = 0, count = 0;
   let bestScoreWeek: SleepMetrics['bestScoreWeek'] = null;
   let worstScoreWeek: SleepMetrics['worstScoreWeek'] = null;
   let longestSleepWeek: SleepMetrics['longestSleepWeek'] = null;
@@ -643,14 +567,8 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
     totalDurationMinutes += durationMinutes;
     count += 1;
 
-    if (!bestScoreWeek || score > bestScoreWeek.score) {
-      bestScoreWeek = { label, score, durationMinutes };
-    }
-
-    if (!worstScoreWeek || score < worstScoreWeek.score) {
-      worstScoreWeek = { label, score, durationMinutes };
-    }
-
+    if (!bestScoreWeek || score > bestScoreWeek.score) bestScoreWeek = { label, score, durationMinutes };
+    if (!worstScoreWeek || score < worstScoreWeek.score) worstScoreWeek = { label, score, durationMinutes };
     if (!longestSleepWeek || durationMinutes > longestSleepWeek.durationMinutes) {
       longestSleepWeek = { label, durationMinutes, score };
     }
@@ -669,9 +587,7 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
 type RawRow = Record<string, any>;
 
 function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
-  let periods = 0;
-  let totalSteps = 0;
-  let totalDays = 0;
+  let periods = 0, totalSteps = 0, totalDays = 0;
   let bestWeek: StepsMetrics['bestWeek'] | null = null;
 
   const rowCount = rows.length || 0;
@@ -700,22 +616,11 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
 
   rows.forEach((row) => {
     const steps = parseNumber(
-      row['Steps'] ??
-        row['Total Steps'] ??
-        row['Total steps'] ??
-        row['Weekly Steps'] ??
-        row['Actual']
+      row['Steps'] ?? row['Total Steps'] ?? row['Total steps'] ?? row['Weekly Steps'] ?? row['Actual']
     );
     if (!steps) return;
 
-    const label =
-      (row['Week'] ??
-        row['Label'] ??
-        row['Start'] ??
-        row['Date'] ??
-        row[''] ??
-        '') + '';
-
+    const label = (row['Week'] ?? row['Label'] ?? row['Start'] ?? row['Date'] ?? row[''] ?? '') + '';
     const daysInPeriod = parseNumber(row['Days']) || (looksWeekly ? 7 : 1);
 
     periods += 1;
@@ -723,22 +628,14 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     totalDays += daysInPeriod;
 
     if (!bestWeek || steps > bestWeek.steps) {
-      bestWeek = {
-        label: label || (looksWeekly ? `Week ${periods}` : `Day ${periods}`),
-        steps,
-      };
+      bestWeek = { label: label || (looksWeekly ? `Week ${periods}` : `Day ${periods}`), steps };
     }
   });
 
   const days = totalDays || (looksWeekly ? periods * 7 : periods || 1);
   const avgStepsPerDay = totalSteps / days;
 
-  return {
-    weeks: periods,
-    totalSteps,
-    avgStepsPerDay,
-    bestWeek,
-  };
+  return { weeks: periods, totalSteps, avgStepsPerDay, bestWeek };
 }
 
 function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
@@ -748,12 +645,8 @@ function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
         <Icon className="w-4 h-4 text-zinc-300" />
         <span>{label}</span>
       </div>
-      <div className="text-2xl sm:text-3xl font-semibold text-zinc-50">
-        {value || '--'}
-      </div>
-      {helper && (
-        <div className="text-xs text-zinc-500">{helper}</div>
-      )}
+      <div className="text-2xl sm:text-3xl font-semibold text-zinc-50">{value || '--'}</div>
+      {helper && <div className="text-xs text-zinc-500">{helper}</div>}
     </div>
   );
 }
@@ -780,9 +673,7 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter(
-            (row) => row && Object.keys(row).length > 0,
-          );
+          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
           if (!data.length) {
             setError('Could not find any activity rows in that CSV.');
             setMetrics(null);
@@ -804,9 +695,7 @@ export default function Home() {
     });
   };
 
-  const handleSleepFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleSleepFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setSleepError(null);
@@ -816,9 +705,7 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter(
-            (row) => row && Object.keys(row).length > 0,
-          );
+          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
           if (!data.length) {
             setSleepError('Could not find any sleep rows in that CSV.');
             setSleepMetrics(null);
@@ -840,9 +727,7 @@ export default function Home() {
     });
   };
 
-  const handleStepsFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleStepsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setStepsError(null);
@@ -852,9 +737,7 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter(
-            (row) => row && Object.keys(row).length > 0,
-          );
+          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
           if (!data.length) {
             setStepsError('Could not find any step rows in that CSV.');
             setStepsMetrics(null);
@@ -864,10 +747,7 @@ export default function Home() {
           setStepsMetrics(m);
         } catch (err: any) {
           console.error(err);
-          setStepsError(
-            err?.message ||
-              'Sorry, something went wrong reading the steps CSV.',
-          );
+          setStepsError(err?.message || 'Sorry, something went wrong reading the steps CSV.');
           setStepsMetrics(null);
         }
       },
@@ -881,7 +761,6 @@ export default function Home() {
 
   const handleDownloadImage = async () => {
     if (!pageRef.current) return;
-
     const node = pageRef.current;
 
     try {
@@ -906,58 +785,32 @@ export default function Home() {
 
   const m = metrics;
 
-  const distanceStr = m
-    ? `${m.totalDistanceMi.toFixed(2)} mi`
-    : '--';
-  const earthPercentStr = m
-    ? `${m.earthPercent.toFixed(2)}%`
-    : '--';
-  const totalTimeStr = m
-    ? formatDurationLong(m.totalActivitySeconds)
-    : '--';
+  const distanceStr = m ? `${m.totalDistanceMi.toFixed(2)} mi` : '--';
+  const earthPercentStr = m ? `${m.earthPercent.toFixed(2)}%` : '--';
+  const totalTimeStr = m ? formatDurationLong(m.totalActivitySeconds) : '--';
   const maxHrStr = m?.maxHr ? `${Math.round(m.maxHr)} bpm` : '--';
   const avgHrStr = m?.avgHr ? `${Math.round(m.avgHr)} bpm` : '--';
-  const caloriesStr = m?.totalCalories
-    ? `${m.totalCalories.toLocaleString()} kcal`
-    : '--';
+  const caloriesStr = m?.totalCalories ? `${m.totalCalories.toLocaleString()} kcal` : '--';
   const sessionsStr = m ? `${m.sessions}` : '--';
 
-  const favActivityStr =
-    m?.favoriteActivity &&
+  const favActivityStr = m?.favoriteActivity &&
     `${m.favoriteActivity.name} · ${m.favoriteActivity.count} sessions`;
 
   const mostActiveMonthStr =
     m?.mostActiveMonth &&
-    `${m.mostActiveMonth.name} · ${m.mostActiveMonth.totalHours.toFixed(
-      1,
-    )} hrs`;
+    `${m.mostActiveMonth.name} · ${m.mostActiveMonth.totalHours.toFixed(1)} hrs`;
 
-  const streakStr =
-    m?.longestStreak && m.longestStreak.lengthDays > 0
-      ? `${m.longestStreak.lengthDays} days`
-      : '--';
+  const streakStr = m?.longestStreak && m.longestStreak.lengthDays > 0
+    ? `${m.longestStreak.lengthDays} days` : '--';
 
-  const streakRange =
-    m?.longestStreak &&
+  const streakRange = m?.longestStreak &&
     `${m.longestStreak.start} → ${m.longestStreak.end}`;
 
-  const totalAscentStr =
-    m?.totalAscent != null
-      ? `${Math.round(m.totalAscent)} ft`
-      : '--';
-  const maxElevationStr =
-    m?.maxElevation != null ? `${Math.round(m.maxElevation)} ft` : '--';
+  const totalAscentStr = m?.totalAscent != null ? `${Math.round(m.totalAscent)} ft` : '--';
+  const maxElevationStr = m?.maxElevation != null ? `${Math.round(m.maxElevation)} ft` : '--';
 
-  const avgDistanceStr =
-    m?.avgDistanceMi != null
-      ? `${m.avgDistanceMi.toFixed(2)} mi / session`
-      : '--';
-
-  const avgDurationStr =
-    m?.avgDurationSeconds != null
-      ? `${formatDurationHMS(m.avgDurationSeconds)} / session`
-      : '--';
-
+  const avgDistanceStr = m?.avgDistanceMi != null ? `${m.avgDistanceMi.toFixed(2)} mi / session` : '--';
+  const avgDurationStr = m?.avgDurationSeconds != null ? `${formatDurationHMS(m.avgDurationSeconds)} / session` : '--';
   const typesCountStr = m ? `${m.activityTypesCount}` : '--';
 
   const longestActivity = m?.longestActivity;
@@ -970,47 +823,24 @@ export default function Home() {
       : 'Upload a CSV to see your year';
 
   // Sport-specific strings
-  const runDistanceStr =
-    m?.runDistanceMi != null
-      ? `${m.runDistanceMi.toFixed(1)} mi`
-      : '--';
-  const runTimeStr =
-    m?.runSeconds != null ? formatDurationHMS(m.runSeconds) : '--';
-  const runPaceStr =
-    m?.runSeconds && m.runDistanceMi
-      ? formatPacePerMile(m.runSeconds, m.runDistanceMi)
-      : '--';
+  const runDistanceStr = m?.runDistanceMi != null ? `${m.runDistanceMi.toFixed(1)} mi` : '--';
+  const runTimeStr = m?.runSeconds != null ? formatDurationHMS(m.runSeconds) : '--';
+  const runPaceStr = m?.runSeconds && m.runDistanceMi
+    ? formatPacePerMile(m.runSeconds, m.runDistanceMi) : '--';
 
-  const bikeDistanceStr =
-    m?.bikeDistanceMi != null
-      ? `${m.bikeDistanceMi.toFixed(1)} mi`
-      : '--';
-  const bikeTimeStr =
-    m?.bikeSeconds != null ? formatDurationHMS(m.bikeSeconds) : '--';
-  const bikeSpeedStr =
-    m?.bikeDistanceMi && m.bikeSeconds
-      ? `${(
-          m.bikeDistanceMi /
-          (m.bikeSeconds / 3600)
-        ).toFixed(1)} mph`
-      : '--';
+  const bikeDistanceStr = m?.bikeDistanceMi != null ? `${m.bikeDistanceMi.toFixed(1)} mi` : '--';
+  const bikeTimeStr = m?.bikeSeconds != null ? formatDurationHMS(m.bikeSeconds) : '--';
+  const bikeSpeedStr = m?.bikeDistanceMi && m.bikeSeconds
+    ? `${(m.bikeDistanceMi / (m.bikeSeconds / 3600)).toFixed(1)} mph` : '--';
 
-  const swimDistanceStr =
-    m?.swimMeters != null
-      ? `${m.swimMeters.toLocaleString()} m`
-      : '--';
-  const swimTimeStr =
-    m?.swimSeconds != null ? formatDurationHMS(m.swimSeconds) : '--';
-  const swimPaceStr =
-    m?.swimSeconds && m.swimMeters
-      ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters)
-      : '--';
+  const swimDistanceStr = m?.swimMeters != null ? `${m.swimMeters.toLocaleString()} m` : '--';
+  const swimTimeStr = m?.swimSeconds != null ? formatDurationHMS(m.swimSeconds) : '--';
+  const swimPaceStr = m?.swimSeconds && m.swimMeters
+    ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters) : '--';
 
-  // Steps
+  // Sleep
   const s = sleepMetrics;
-  const avgSleepScoreStr = s
-    ? s.avgScore.toFixed(1)
-    : '--';
+  const avgSleepScoreStr = s ? s.avgScore.toFixed(1) : '--';
   const avgSleepDurationStr = s
     ? (() => {
         const mins = s.avgDurationMinutes;
@@ -1019,53 +849,31 @@ export default function Home() {
         return `${h}h ${mR}m`;
       })()
     : '--';
+  const sleepGrade = s && s.avgScore
+    ? s.avgScore >= 85 ? 'A'
+      : s.avgScore >= 80 ? 'B+'
+      : s.avgScore >= 75 ? 'B' : 'C+'
+    : '--';
 
-  const sleepGrade =
-    s && s.avgScore
-      ? s.avgScore >= 85
-        ? 'A'
-        : s.avgScore >= 80
-        ? 'B+'
-        : s.avgScore >= 75
-        ? 'B'
-        : 'C+'
-      : '--';
-
+  // Steps
   const step = stepsMetrics;
-  const totalStepsStr = step
-    ? step.totalSteps.toLocaleString()
-    : null;
-  const avgStepsStr =
-    step && step.avgStepsPerDay
-      ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
-      : null;
+  const totalStepsStr = step ? step.totalSteps.toLocaleString() : null;
+  const avgStepsStr = step && step.avgStepsPerDay
+    ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day` : null;
 
-  const marathonEqStr =
-    m && m.totalDistanceMi
-      ? (m.totalDistanceMi / MARATHON_MI).toFixed(1)
-      : null;
-  const fiveKEqStr =
-    m && m.totalDistanceMi
-      ? (m.totalDistanceMi / FIVEK_MI).toFixed(1)
-      : null;
+  const marathonEqStr = m && m.totalDistanceMi ? (m.totalDistanceMi / MARATHON_MI).toFixed(1) : null;
+  const fiveKEqStr = m && m.totalDistanceMi ? (m.totalDistanceMi / FIVEK_MI).toFixed(1) : null;
 
-  const everestsStr =
-    m?.totalAscent != null && m.totalAscent > 0
-      ? (m.totalAscent / EVEREST_FT).toFixed(2)
-      : null;
+  const everestsStr = m?.totalAscent != null && m.totalAscent > 0
+    ? (m.totalAscent / EVEREST_FT).toFixed(2) : null;
 
   return (
-    <div
-      ref={pageRef}
-      className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white"
-    >
+    <div ref={pageRef} className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* Header */}
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">
-              Garmin Wrapped
-            </h1>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">Garmin Wrapped</h1>
             <p className="text-sm text-zinc-400">{dateRange}</p>
           </div>
 
@@ -1073,34 +881,19 @@ export default function Home() {
             <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-4 h-4" />
               <span>Upload Garmin activities CSV</span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={handleFileChange}
-              />
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
             </label>
 
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Sleep CSV (optional)</span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={handleSleepFileChange}
-              />
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleSleepFileChange} />
             </label>
 
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Steps CSV (optional)</span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={handleStepsFileChange}
-              />
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleStepsFileChange} />
             </label>
 
             {metrics && (
@@ -1115,25 +908,12 @@ export default function Home() {
 
             {!metrics && (
               <p className="text-xs text-zinc-500 max-w-xs text-right">
-                Export your activities from Garmin Connect (&quot;All
-                Activities&quot;) as CSV and drop it here.
+                Export your activities from Garmin Connect (&quot;All Activities&quot;) as CSV and drop it here.
               </p>
             )}
-            {error && (
-              <p className="text-xs text-red-400 max-w-xs text-right">
-                {error}
-              </p>
-            )}
-            {sleepError && (
-              <p className="text-xs text-red-400 max-w-xs text-right">
-                {sleepError}
-              </p>
-            )}
-            {stepsError && (
-              <p className="text-xs text-red-400 max-w-xs text-right">
-                {stepsError}
-              </p>
-            )}
+            {error && <p className="text-xs text-red-400 max-w-xs text-right">{error}</p>}
+            {sleepError && <p className="text-xs text-red-400 max-w-xs text-right">{sleepError}</p>}
+            {stepsError && <p className="text-xs text-red-400 max-w-xs text-right">{stepsError}</p>}
           </div>
         </header>
 
@@ -1148,133 +928,64 @@ export default function Home() {
                       <Activity className="w-5 h-5 text-indigo-200" />
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-indigo-200/80">
-                        Distance traveled
-                      </p>
-                      <p className="text-xs text-zinc-300">
-                        Powered by Garmin activities
-                      </p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-indigo-200/80">Distance traveled</p>
+                      <p className="text-xs text-zinc-300">Powered by Garmin activities</p>
                     </div>
                   </div>
-                  <div className="text-xs text-zinc-400">
-                    {m?.startDateDisplay} → {m?.endDateDisplay}
-                  </div>
+                  <div className="text-xs text-zinc-400">{m?.startDateDisplay} → {m?.endDateDisplay}</div>
                 </div>
 
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <div className="text-4xl sm:text-5xl md:text-6xl font-semibold">
-                      {distanceStr}
-                    </div>
+                    <div className="text-4xl sm:text-5xl md:text-6xl font-semibold">{distanceStr}</div>
                     <div className="text-md text-zinc-300 mt-2">
-                      That&apos;s{' '}
-                      <span className="font-semibold">{earthPercentStr}</span>{' '}
-                      of the way around Earth.
+                      That&apos;s <span className="font-semibold">{earthPercentStr}</span> of the way around Earth.
                     </div>
                     {step && totalStepsStr && (
                       <div className="text-lg text-zinc-300 mt-1">
-                        <span className="font-semibold text-lg sm:text-xl">
-                          {totalStepsStr} steps
-                        </span>
-                        {avgStepsStr && (
-                          <>
-                            {' '}
-                            <span className="font-semibold text-lg sm:text-xl">
-                              {avgStepsStr}
-                            </span>
-                          </>
-                        )}
+                        <span className="font-semibold text-lg sm:text-xl">{totalStepsStr} steps</span>
+                        {avgStepsStr && <> <span className="font-semibold text-lg sm:text-xl">{avgStepsStr}</span></>}
                       </div>
                     )}
                     {marathonEqStr && fiveKEqStr && (
                       <div className="text-md text-zinc-300 mt-1">
-                        That&apos;s about{' '}
-                        <span className="font-semibold">
-                          {marathonEqStr} marathons
-                        </span>{' '}
-                        or{' '}
-                        <span className="font-semibold">
-                          {fiveKEqStr} 5Ks
-                        </span>
-                        .
+                        That&apos;s about <span className="font-semibold">{marathonEqStr} marathons</span> or{' '}
+                        <span className="font-semibold">{fiveKEqStr} 5Ks</span>.
                       </div>
                     )}
                   </div>
 
                   <div className="bg-black/40 rounded-2xl px-4 py-3 border border-white/10 flex flex-col gap-1 min-w-[9rem]">
-                    <div className="text-xs text-zinc-400 uppercase tracking-wide">
-                      Total time moving
-                    </div>
+                    <div className="text-xs text-zinc-400 uppercase tracking-wide">Total time moving</div>
                     <div className="text-lg font-semibold">{totalTimeStr}</div>
-                    <div className="text-xs text-zinc-500">
-                      Across {sessionsStr} sessions
-                    </div>
+                    <div className="text-xs text-zinc-500">Across {sessionsStr} sessions</div>
                   </div>
                 </div>
               </div>
 
               <div className="flex flex-col gap-4">
-                <StatCard
-                  icon={LineChart}
-                  value={sessionsStr}
-                  label="Total sessions"
-                  helper="Every recording counts as one."
-                />
+                <StatCard icon={LineChart} value={sessionsStr} label="Total sessions" helper="Every recording counts as one." />
                 <StatCard
                   icon={CalendarDays}
                   value={m?.grindDay ? m.grindDay.name : '--'}
                   label="Grind day"
-                    helper={
-                      m?.grindDay
-                      ? `${m.grindDay.totalHours.toFixed(1)} hrs · ${m.grindDay.activities} activities`
-                      : undefined
-                    }
+                  helper={m?.grindDay ? `${m.grindDay.totalHours.toFixed(1)} hrs · ${m.grindDay.activities} activities` : undefined}
                 />
               </div>
             </section>
 
             {/* HR + calories */}
             <section className="grid gap-5 md:grid-cols-3">
-              <StatCard
-                icon={HeartPulse}
-                value={maxHrStr}
-                label="Max heart rate"
-                helper="Your highest recorded BPM."
-              />
-              <StatCard
-                icon={HeartPulse}
-                value={avgHrStr}
-                label="Average heart rate"
-                helper="Average across all sessions with HR data."
-              />
-              <StatCard
-                icon={Flame}
-                value={caloriesStr}
-                label="Calories burned"
-                helper="Total estimated energy output."
-              />
+              <StatCard icon={HeartPulse} value={maxHrStr} label="Max heart rate" helper="Your highest recorded BPM." />
+              <StatCard icon={HeartPulse} value={avgHrStr} label="Average heart rate" helper="Average across all sessions with HR data." />
+              <StatCard icon={Flame} value={caloriesStr} label="Calories burned" helper="Total estimated energy output." />
             </section>
 
             {/* Averages */}
             <section className="grid gap-5 md:grid-cols-3">
-              <StatCard
-                icon={Timer}
-                value={avgDurationStr}
-                label="Avg duration"
-                helper="Typical length of one session."
-              />
-              <StatCard
-                icon={Activity}
-                value={avgDistanceStr}
-                label="Avg distance"
-                helper="Average distance per recorded activity."
-              />
-              <StatCard
-                icon={CalendarDays}
-                value={mostActiveMonthStr || '--'}
-                label="Most active month"
-                helper="Where you stacked the most time."
-              />
+              <StatCard icon={Timer} value={avgDurationStr} label="Avg duration" helper="Typical length of one session." />
+              <StatCard icon={Activity} value={avgDistanceStr} label="Avg distance" helper="Average distance per recorded activity." />
+              <StatCard icon={CalendarDays} value={mostActiveMonthStr || '--'} label="Most active month" helper="Where you stacked the most time." />
             </section>
 
             {/* Sports */}
@@ -1286,35 +997,20 @@ export default function Home() {
                     <Activity className="w-5 h-5 text-red-200" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-red-200">
-                      Running
-                    </p>
-                    <p className="text-xs text-zinc-300">
-                      Road, treadmill, and track
-                    </p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-red-200">Running</p>
+                    <p className="text-xs text-zinc-300">Road, treadmill, and track</p>
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Distance</span>
-                    <span className="font-semibold">{runDistanceStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Time</span>
-                    <span className="font-semibold">{runTimeStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Pace</span>
-                    <span className="font-semibold">{runPaceStr}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Distance</span><span className="font-semibold">{runDistanceStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Time</span><span className="font-semibold">{runTimeStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Pace</span><span className="font-semibold">{runPaceStr}</span></div>
                   {m?.runLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
                       <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
                         <div className="font-semibold">{m.runLongest.title}</div>
-                        <div className="font-semibold text-xs sm:text-sm opacity-90">
-                          {m.runLongest.distanceMi.toFixed(1)} mi
-                        </div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">{m.runLongest.distanceMi.toFixed(1)} mi</div>
                       </div>
                     </div>
                   )}
@@ -1328,35 +1024,20 @@ export default function Home() {
                     <Bike className="w-5 h-5 text-emerald-200" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">
-                      Cycling
-                    </p>
-                    <p className="text-xs text-zinc-300">
-                      Road, indoor, and virtual
-                    </p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Cycling</p>
+                    <p className="text-xs text-zinc-300">Road, indoor, and virtual</p>
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Distance</span>
-                    <span className="font-semibold">{bikeDistanceStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Time</span>
-                    <span className="font-semibold">{bikeTimeStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Avg speed</span>
-                    <span className="font-semibold">{bikeSpeedStr}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Distance</span><span className="font-semibold">{bikeDistanceStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Time</span><span className="font-semibold">{bikeTimeStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Avg speed</span><span className="font-semibold">{bikeSpeedStr}</span></div>
                   {m?.bikeLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
                       <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
                         <div className="font-semibold">{m.bikeLongest.title}</div>
-                        <div className="font-semibold text-xs sm:text-sm opacity-90">
-                          {m.bikeLongest.distanceMi.toFixed(1)} mi
-                        </div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">{m.bikeLongest.distanceMi.toFixed(1)} mi</div>
                       </div>
                     </div>
                   )}
@@ -1370,35 +1051,20 @@ export default function Home() {
                     <Waves className="w-5 h-5 text-cyan-200" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">
-                      Swimming
-                    </p>
-                    <p className="text-xs text-zinc-300">
-                      Pool and open water (meters)
-                    </p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Swimming</p>
+                    <p className="text-xs text-zinc-300">Pool and open water (meters)</p>
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Distance</span>
-                    <span className="font-semibold">{swimDistanceStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Time</span>
-                    <span className="font-semibold">{swimTimeStr}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-400">Pace</span>
-                    <span className="font-semibold">{swimPaceStr}</span>
-                  </div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Distance</span><span className="font-semibold">{swimDistanceStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Time</span><span className="font-semibold">{swimTimeStr}</span></div>
+                  <div className="flex justify-between"><span className="text-zinc-400">Pace</span><span className="font-semibold">{swimPaceStr}</span></div>
                   {m?.swimLongest && (
                     <div className="flex justify-between items-start">
                       <span className="text-zinc-400">Longest</span>
                       <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
                         <div className="font-semibold">{m.swimLongest.title}</div>
-                        <div className="font-semibold text-xs sm:text-sm opacity-90">
-                          {m.swimLongest.distanceM.toLocaleString()} m
-                        </div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">{m.swimLongest.distanceM.toLocaleString()} m</div>
                       </div>
                     </div>
                   )}
@@ -1415,39 +1081,25 @@ export default function Home() {
                       <Trophy className="w-5 h-5 text-yellow-300" />
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-yellow-300">
-                        Longest activity
-                      </p>
-                      <p className="text-sm text-zinc-300">
-                        {longestActivity.date || '--'}
-                      </p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-yellow-300">Longest activity</p>
+                      <p className="text-sm text-zinc-300">{longestActivity.date || '--'}</p>
                     </div>
                   </div>
-                  <p className="text-lg sm:text-xl font-semibold mb-2">
-                    {longestActivity.title}
-                  </p>
+                  <p className="text-lg sm:text-xl font-semibold mb-2">{longestActivity.title}</p>
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div>
                       <p className="text-zinc-400 text-xs">Duration</p>
-                      <p className="text-zinc-100 font-medium">
-                        {formatDurationHMS(
-                          longestActivity.durationSeconds,
-                        )}
-                      </p>
+                      <p className="text-zinc-100 font-medium">{formatDurationHMS(longestActivity.durationSeconds)}</p>
                     </div>
                     <div>
                       <p className="text-zinc-400 text-xs">Calories</p>
                       <p className="text-zinc-100 font-medium">
-                        {longestActivity.calories != null
-                          ? `${longestActivity.calories} kcal`
-                          : '--'}
+                        {longestActivity.calories != null ? `${longestActivity.calories} kcal` : '--'}
                       </p>
                     </div>
                     <div>
                       <p className="text-zinc-400 text-xs">Type</p>
-                      <p className="text-zinc-100 font-medium">
-                        Long day out
-                      </p>
+                      <p className="text-zinc-100 font-medium">Long day out</p>
                     </div>
                   </div>
                 </div>
@@ -1460,39 +1112,25 @@ export default function Home() {
                       <Flame className="w-5 h-5 text-orange-300" />
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-orange-300">
-                        Highest calorie burn
-                      </p>
-                      <p className="text-sm text-zinc-300">
-                        {highestCal.date || '--'}
-                      </p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-orange-300">Highest calorie burn</p>
+                      <p className="text-sm text-zinc-300">{highestCal.date || '--'}</p>
                     </div>
                   </div>
-                  <p className="text-lg sm:text-xl font-semibold mb-2">
-                    {highestCal.title}
-                  </p>
+                  <p className="text-lg sm:text-xl font-semibold mb-2">{highestCal.title}</p>
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div>
                       <p className="text-zinc-400 text-xs">Duration</p>
                       <p className="text-zinc-100 font-medium">
-                        {highestCal.durationSeconds
-                          ? formatDurationHMS(
-                              highestCal.durationSeconds,
-                            )
-                          : '--'}
+                        {highestCal.durationSeconds ? formatDurationHMS(highestCal.durationSeconds) : '--'}
                       </p>
                     </div>
                     <div>
                       <p className="text-zinc-400 text-xs">Calories</p>
-                      <p className="text-zinc-100 font-medium">
-                        {highestCal.calories} kcal
-                      </p>
+                      <p className="text-zinc-100 font-medium">{highestCal.calories} kcal</p>
                     </div>
                     <div>
                       <p className="text-zinc-400 text-xs">Effort</p>
-                      <p className="text-zinc-100 font-medium">
-                        Big day in the pain cave
-                      </p>
+                      <p className="text-zinc-100 font-medium">Big day in the pain cave</p>
                     </div>
                   </div>
                 </div>
@@ -1507,20 +1145,12 @@ export default function Home() {
                     <Zap className="w-5 h-5 text-amber-300" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-amber-300">
-                      Consistency streak
-                    </p>
-                    {streakRange && (
-                      <p className="text-sm text-zinc-300">{streakRange}</p>
-                    )}
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-300">Consistency streak</p>
+                    {streakRange && <p className="text-sm text-zinc-300">{streakRange}</p>}
                   </div>
                 </div>
-                <div className="text-3xl sm:text-4xl font-semibold mb-2">
-                  {streakStr}
-                </div>
-                <p className="text-xs text-zinc-500">
-                  Longest run of consecutive days with at least one activity.
-                </p>
+                <div className="text-3xl sm:text-4xl font-semibold mb-2">{streakStr}</div>
+                <p className="text-xs text-zinc-500">Longest run of consecutive days with at least one activity.</p>
               </div>
 
               <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
@@ -1529,30 +1159,17 @@ export default function Home() {
                     <Mountain className="w-5 h-5 text-emerald-300" />
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">
-                      Vertical gains
-                    </p>
-                    <p className="text-sm text-zinc-300">
-                      Total climbing and highest point
-                    </p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">Vertical gains</p>
+                    <p className="text-sm text-zinc-300">Total climbing and highest point</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-zinc-400 text-xs">Total ascent</p>
-                    <p className="text-lg font-semibold">{totalAscentStr}</p>
-                  </div>
-                  <div>
-                    <p className="text-zinc-400 text-xs">Highest point</p>
-                    <p className="text-lg font-semibold">
-                      {maxElevationStr}
-                    </p>
-                  </div>
+                  <div><p className="text-zinc-400 text-xs">Total ascent</p><p className="text-lg font-semibold">{totalAscentStr}</p></div>
+                  <div><p className="text-zinc-400 text-xs">Highest point</p><p className="text-lg font-semibold">{maxElevationStr}</p></div>
                 </div>
                 {everestsStr && (
                   <div className="text-md text-zinc-400 mt-2">
-                    ≈ <span className="font-semibold text-zinc-200">{everestsStr}</span>{' '}
-                    Mount Everests
+                    ≈ <span className="font-semibold text-zinc-200">{everestsStr}</span> Mount Everests
                   </div>
                 )}
               </div>
@@ -1567,36 +1184,20 @@ export default function Home() {
                       <Dumbbell className="w-5 h-5 text-blue-300" />
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-blue-300">
-                        By activity type
-                      </p>
-                      <p className="text-sm text-zinc-300">
-                        Your top sports by session count
-                      </p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-blue-300">By activity type</p>
+                      <p className="text-sm text-zinc-300">Your top sports by session count</p>
                     </div>
                   </div>
-                  {favActivityStr && (
-                    <p className="text-xs text-zinc-400 text-right max-w-[10rem]">
-                      Favorite: {favActivityStr}
-                    </p>
-                  )}
+                  {favActivityStr && <p className="text-xs text-zinc-400 text-right max-w-[10rem]">Favorite: {favActivityStr}</p>}
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   {topTypes.map((t) => (
-                    <div
-                      key={t.name}
-                      className="bg-black/40 border border-zinc-700 rounded-2xl p-4 flex flex-col gap-2"
-                    >
-                      <div className="text-sm font-semibold truncate">
-                        {t.name}
-                      </div>
-                      <div className="text-xs text-zinc-400">
-                        {t.count} session{t.count !== 1 ? 's' : ''}
-                      </div>
+                    <div key={t.name} className="bg-black/40 border border-zinc-700 rounded-2xl p-4 flex flex-col gap-2">
+                      <div className="text-sm font-semibold truncate">{t.name}</div>
+                      <div className="text-xs text-zinc-400">{t.count} session{t.count !== 1 ? 's' : ''}</div>
                       <div className="text-sm text-zinc-100">
-                        {t.totalDistanceMi.toFixed(1)} mi ·{' '}
-                        {formatDurationHMS(t.totalSeconds)}
+                        {t.totalDistanceMi.toFixed(1)} mi · {formatDurationHMS(t.totalSeconds)}
                       </div>
                     </div>
                   ))}
@@ -1615,12 +1216,8 @@ export default function Home() {
                   <HeartPulse className="w-5 h-5 text-indigo-200" />
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-indigo-200">
-                    Sleep Wrapped
-                  </p>
-                  <p className="text-sm text-zinc-300">
-                    {sleepMetrics.weeks} weeks of tracked sleep
-                  </p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-indigo-200">Sleep Wrapped</p>
+                  <p className="text-sm text-zinc-300">{sleepMetrics.weeks} weeks of tracked sleep</p>
                 </div>
               </div>
             </div>
@@ -1628,35 +1225,25 @@ export default function Home() {
             <div className="grid gap-4 md:grid-cols-3 text-sm">
               <div>
                 <p className="text-zinc-400 text-xs">Average sleep score</p>
-                <p className="text-2xl font-semibold">
-                  {avgSleepScoreStr}
-                </p>
+                <p className="text-2xl font-semibold">{avgSleepScoreStr}</p>
                 <p className="text-xs text-zinc-500 mt-1">
-                  Roughly a solid{' '}
-                  <span className="font-semibold">{sleepGrade}</span>.
+                  Roughly a solid <span className="font-semibold">{sleepGrade}</span>.
                 </p>
               </div>
 
               <div>
-                <p className="text-zinc-400 text-xs">
-                  Average nightly duration
-                </p>
-                <p className="text-2xl font-semibold">
-                  {avgSleepDurationStr}
-                </p>
+                <p className="text-zinc-400 text-xs">Average nightly duration</p>
+                <p className="text-2xl font-semibold">{avgSleepDurationStr}</p>
               </div>
 
               {sleepMetrics.bestScoreWeek && (
                 <div>
                   <p className="text-zinc-400 text-xs">Best week</p>
-                  <p className="text-sm text-zinc-100 font-semibold">
-                    {sleepMetrics.bestScoreWeek.label}
-                  </p>
+                  <p className="text-sm text-zinc-100 font-semibold">{sleepMetrics.bestScoreWeek.label}</p>
                   <p className="text-sm text-zinc-300">
                     Score {sleepMetrics.bestScoreWeek.score} ·{' '}
                     {(() => {
-                      const mins =
-                        sleepMetrics.bestScoreWeek!.durationMinutes;
+                      const mins = sleepMetrics.bestScoreWeek!.durationMinutes;
                       const h = Math.floor(mins / 60);
                       const mR = Math.round(mins % 60);
                       return `${h}h ${mR}m avg`;
@@ -1668,11 +1255,7 @@ export default function Home() {
 
             {sleepMetrics.worstScoreWeek && (
               <div className="mt-4 text-xs text-zinc-400">
-                Toughest week:{' '}
-                <span className="text-zinc-200">
-                  {sleepMetrics.worstScoreWeek.label}
-                </span>{' '}
-                (score {sleepMetrics.worstScoreWeek.score}).
+                Toughest week: <span className="text-zinc-200">{sleepMetrics.worstScoreWeek.label}</span> (score {sleepMetrics.worstScoreWeek.score}).
               </div>
             )}
           </section>
