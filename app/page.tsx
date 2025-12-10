@@ -348,7 +348,8 @@ function computeMetrics(rows: CsvRow[]): Metrics {
 
     const durationSeconds = timeSeconds;
     if (durationSeconds > 0) {
-      if (!longestActivityDetail || durationSeconds > longestActivityDetail.durationSeconds) {
+      const prev = longestActivityDetail?.durationSeconds ?? -1;
+      if (durationSeconds > prev) {
         longestActivityDetail = { row, durationSeconds, date: date ?? null };
       }
     }
@@ -485,50 +486,56 @@ function computeMetrics(rows: CsvRow[]): Metrics {
 
   // Longest activity summary — explicit narrowing
   let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
-    longestActivitySummary = {
-      title: getStringField(longestActivityDetail.row, 'Title') || 'Unknown activity',
-      date: formatDateDisplay(longestActivityDetail.date),
-      durationSeconds: longestActivityDetail.durationSeconds,
-      calories: getNumberField(longestActivityDetail.row, 'Calories'),
-    };
+  {
+    const l = longestActivityDetail as LongestActivityDetail | null;
+    if (l && l.durationSeconds > 0) {
+      longestActivitySummary = {
+        title: getStringField(l.row, 'Title') || 'Unknown activity',
+        date: formatDateDisplay(l.date),
+        durationSeconds: l.durationSeconds,
+        calories: getNumberField(l.row, 'Calories'),
+      };
+    }
   }
 
   // Highest calorie summary — explicit narrowing
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
-  if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
-    highestCalorieSummary = {
-      title: getStringField(highestCalorieDetail.row, 'Title') || 'Unknown activity',
-      date: formatDateDisplay(highestCalorieDetail.date),
-      calories: highestCalorieDetail.calories,
-      durationSeconds: highestCalorieDetail.durationSeconds,
-    };
+  {
+    const h = highestCalorieDetail as HighestCalorieDetail | null;
+    if (h && h.calories > 0) {
+      highestCalorieSummary = {
+        title: getStringField(h.row, 'Title') || 'Unknown activity',
+        date: formatDateDisplay(h.date),
+        calories: h.calories,
+        durationSeconds: h.durationSeconds,
+      };
+    }
   }
 
   // Per-sport longest — explicit narrowing
-  let runLongestOut: Metrics['runLongest'];
-  if (runLongest && runLongest.distanceMi > 0) {
-    runLongestOut = {
-      title: getStringField(runLongest.row, 'Title') || 'Longest run',
-      distanceMi: runLongest.distanceMi,
-    };
-  }
+  const runLongestOut =
+    (() => {
+      const r = runLongest as { row: CsvRow; distanceMi: number } | null;
+      return r && r.distanceMi > 0
+        ? { title: getStringField(r.row, 'Title') || 'Longest run', distanceMi: r.distanceMi }
+        : undefined;
+    })();
 
-  let bikeLongestOut: Metrics['bikeLongest'];
-  if (bikeLongest && bikeLongest.distanceMi > 0) {
-    bikeLongestOut = {
-      title: getStringField(bikeLongest.row, 'Title') || 'Longest ride',
-      distanceMi: bikeLongest.distanceMi,
-    };
-  }
+  const bikeLongestOut =
+    (() => {
+      const b = bikeLongest as { row: CsvRow; distanceMi: number } | null;
+      return b && b.distanceMi > 0
+        ? { title: getStringField(b.row, 'Title') || 'Longest ride', distanceMi: b.distanceMi }
+        : undefined;
+    })();
 
-  let swimLongestOut: Metrics['swimLongest'];
-  if (swimLongest && swimLongest.distanceM > 0) {
-    swimLongestOut = {
-      title: getStringField(swimLongest.row, 'Title') || 'Longest swim',
-      distanceM: swimLongest.distanceM,
-    };
-  }
+  const swimLongestOut =
+    (() => {
+      const s = swimLongest as { row: CsvRow; distanceM: number } | null;
+      return s && s.distanceM > 0
+        ? { title: getStringField(s.row, 'Title') || 'Longest swim', distanceM: s.distanceM }
+        : undefined;
+    })();
 
   return {
     totalDistanceMi,
