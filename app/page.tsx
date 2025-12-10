@@ -118,12 +118,29 @@ type HighestCalorieDetail = {
   durationSeconds: number;
 };
 
-/** Structural guard: avoids alias-based narrowing edge cases in CI */
+/** Structural guards: avoids alias-based narrowing edge cases in CI */
 function hasDurationSeconds(
   x: unknown
 ): x is { row: CsvRow; durationSeconds: number; date: Date | null } {
   return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
 }
+
+function hasHighestCalorie(
+  x: unknown
+): x is { row: CsvRow; calories: number; date: Date | null; durationSeconds: number } {
+  if (!x || typeof x !== 'object') return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.calories === 'number' && typeof o.durationSeconds === 'number';
+}
+
+function hasDistanceMi(x: unknown): x is { row: CsvRow; distanceMi: number } {
+  return !!x && typeof (x as { distanceMi?: unknown }).distanceMi === 'number';
+}
+
+function hasDistanceM(x: unknown): x is { row: CsvRow; distanceM: number } {
+  return !!x && typeof (x as { distanceM?: unknown }).distanceM === 'number';
+}
+
 
 const EARTH_CIRCUMFERENCE_MI = 24901;
 const MARATHON_MI = 26.2188;
@@ -489,11 +506,12 @@ function computeMetrics(rows: CsvRow[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
-  // Longest activity summary — robust narrowing for CI
-  let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  const l = longestActivityDetail; // why: stabilize control-flow narrowing on a fresh const
+// Longest activity summary — robust narrowing for CI
+let longestActivitySummary: Metrics['longestActivity'] | undefined;
+{
+  const l = longestActivityDetail; // fresh const to stabilize control-flow
   if (hasDurationSeconds(l)) {
-    const durationSeconds = l.durationSeconds; // safe: l is structurally narrowed above
+    const durationSeconds = l.durationSeconds;
     if (durationSeconds > 0) {
       longestActivitySummary = {
         title: getStringField(l.row, 'Title') || 'Unknown activity',
@@ -503,32 +521,46 @@ function computeMetrics(rows: CsvRow[]): Metrics {
       };
     }
   }
+}
 
-  // Highest calorie summary
-  let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
-  if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
+// Highest calorie summary — robust narrowing
+let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
+{
+  const h = highestCalorieDetail;
+  if (hasHighestCalorie(h) && h.calories > 0) {
     highestCalorieSummary = {
-      title: getStringField(highestCalorieDetail.row, 'Title') || 'Unknown activity',
-      date: formatDateDisplay(highestCalorieDetail.date),
-      calories: highestCalorieDetail.calories,
-      durationSeconds: highestCalorieDetail.durationSeconds,
+      title: getStringField(h.row, 'Title') || 'Unknown activity',
+      date: formatDateDisplay(h.date),
+      calories: h.calories,
+      durationSeconds: h.durationSeconds,
     };
   }
+}
 
-  const runLongestOut =
-    runLongest && runLongest.distanceMi > 0
-      ? { title: getStringField(runLongest.row, 'Title') || 'Longest run', distanceMi: runLongest.distanceMi }
+// Per-sport longest — robust narrowing for each optional bucket
+const runLongestOut =
+  (() => {
+    const r = runLongest;
+    return hasDistanceMi(r) && r.distanceMi > 0
+      ? { title: getStringField(r.row, 'Title') || 'Longest run', distanceMi: r.distanceMi }
       : undefined;
+  })();
 
-  const bikeLongestOut =
-    bikeLongest && bikeLongest.distanceMi > 0
-      ? { title: getStringField(bikeLongest.row, 'Title') || 'Longest ride', distanceMi: bikeLongest.distanceMi }
+const bikeLongestOut =
+  (() => {
+    const b = bikeLongest;
+    return hasDistanceMi(b) && b.distanceMi > 0
+      ? { title: getStringField(b.row, 'Title') || 'Longest ride', distanceMi: b.distanceMi }
       : undefined;
+  })();
 
-  const swimLongestOut =
-    swimLongest && swimLongest.distanceM > 0
-      ? { title: getStringField(swimLongest.row, 'Title') || 'Longest swim', distanceM: swimLongest.distanceM }
+const swimLongestOut =
+  (() => {
+    const sw = swimLongest;
+    return hasDistanceM(sw) && sw.distanceM > 0
+      ? { title: getStringField(sw.row, 'Title') || 'Longest swim', distanceM: sw.distanceM }
       : undefined;
+  })();
 
   return {
     totalDistanceMi,
