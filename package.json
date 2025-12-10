@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run prebuild && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings=0",
+    "prebuild": "npm run lint"
   },
   "dependencies": {
     "html-to-image": "^1.11.13",
@@ -24,6 +25,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
+    "@typescript-eslint/eslint-plugin": "^8.12.2",
+    "eslint-plugin-unused-imports": "^4.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
