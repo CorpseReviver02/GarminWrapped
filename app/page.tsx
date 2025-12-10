@@ -116,8 +116,13 @@ type HighestCalorieDetail = {
 };
 
 /** Type guard (why: stabilize CI build narrowing) */
-function isLongestActivityDetail(x: unknown): x is LongestActivityDetail {
-  return !!x && typeof (x as any).durationSeconds === 'number';
+/** Guard: ensures we have durationSeconds number */
+function isLongestActivityDetail(x: unknown): x is {
+  row: Record<string, unknown>;
+  durationSeconds: number;
+  date: Date | null;
+} {
+  return !!x && typeof (x as any).durationSeconds === "number";
 }
 
 const EARTH_CIRCUMFERENCE_MI = 24901;
@@ -136,7 +141,7 @@ function parseTimeToSeconds(value: any): number {
   if (!value) return 0;
   const s = String(value).trim();
   if (!s) return 0;
-  const parts = s.split(':').map((p) => parseInt(p, 10));
+  const parts = s.split(":").map((p) => parseInt(p, 10));
   if (parts.some((p) => Number.isNaN(p))) return 0;
 
   if (parts.length === 3) {
@@ -379,12 +384,12 @@ function computeMetrics(rows: any[]): Metrics {
   });
 
   // Favorite activity
-  let favoriteActivity: Metrics['favoriteActivity'] | undefined;
   const activityNames = Object.keys(activityCounts);
+  let favoriteActivity: Metrics["favoriteActivity"] | undefined;
   if (activityNames.length) {
     activityNames.sort((a, b) => (activityCounts[b] ?? 0) - (activityCounts[a] ?? 0));
     const name = activityNames[0]!;
-    favoriteActivity = { name, count: (activityCounts[name] ?? 0) };
+    favoriteActivity = { name, count: activityCounts[name] ?? 0 };
   }
 
   // Most active month (by time)
@@ -473,17 +478,21 @@ function computeMetrics(rows: any[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
-  // Longest activity summary (stable narrowing)
-  let longestActivitySummary: Metrics['longestActivity'] | undefined;
-  const lad = longestActivityDetail;
-  if (isLongestActivityDetail(lad) && lad.durationSeconds > 0) {
+// Longest activity summary — FIXED narrowing (no && on the same line)
+let longestActivitySummary: Metrics["longestActivity"] | undefined;
+const lad = longestActivityDetail;
+// why: Vercel/TS sometimes loses RHS narrowing in compound conditions; split it.
+if (isLongestActivityDetail(lad)) {
+  const durationSeconds = lad.durationSeconds;
+  if (durationSeconds > 0) {
     longestActivitySummary = {
-      title: String(lad.row['Title'] ?? 'Unknown activity'),
+      title: String(lad.row["Title"] ?? "Unknown activity"),
       date: formatDateDisplay(lad.date),
-      durationSeconds: lad.durationSeconds,
-      calories: parseNumber((lad.row as any)['Calories']),
+      durationSeconds,
+      calories: parseNumber((lad.row as any)["Calories"])
     };
   }
+}
 
   // Highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
