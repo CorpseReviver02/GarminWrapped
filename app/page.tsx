@@ -1,4 +1,3 @@
-// app/page.tsx
 'use client';
 
 import React, { useState, useRef } from 'react';
@@ -19,6 +18,11 @@ import {
   Bike,
   Waves,
 } from 'lucide-react';
+
+/* ----------------------------- Strict CSV Types ----------------------------- */
+
+type CsvPrimitive = string | number | boolean | null | undefined;
+type CsvRow = Record<string, CsvPrimitive>;
 
 type ActivityTypeSummary = {
   name: string;
@@ -58,12 +62,9 @@ type Metrics = {
   topActivityTypes?: ActivityTypeSummary[];
   startDateDisplay?: string;
   endDateDisplay?: string;
-  grindDay?: {
-    name: string;
-    totalHours: number;
-    activities: number;
-  };
+  grindDay?: { name: string; totalHours: number; activities: number };
 
+  // By-sport breakdown
   runDistanceMi?: number;
   runSeconds?: number;
   runSessions?: number;
@@ -74,6 +75,7 @@ type Metrics = {
   swimSeconds?: number;
   swimSessions?: number;
 
+  // Per-sport longest-by-distance
   runLongest?: { title: string; distanceMi: number };
   bikeLongest?: { title: string; distanceMi: number };
   swimLongest?: { title: string; distanceM: number };
@@ -102,27 +104,23 @@ type StatCardProps = {
   helper?: string;
 };
 
-// Internal accumulators
+/* ------------------------ Narrow, parse and format utils ------------------------ */
+
 type LongestActivityDetail = {
-  row: Record<string, unknown>;
+  row: CsvRow;
   durationSeconds: number;
   date: Date | null;
 };
 type HighestCalorieDetail = {
-  row: Record<string, unknown>;
+  row: CsvRow;
   calories: number;
   date: Date | null;
   durationSeconds: number;
 };
 
-/** Type guard (why: stabilize CI build narrowing) */
-/** Guard: ensures we have durationSeconds number */
-function isLongestActivityDetail(x: unknown): x is {
-  row: Record<string, unknown>;
-  durationSeconds: number;
-  date: Date | null;
-} {
-  return !!x && typeof (x as any).durationSeconds === "number";
+/** why: Vercel/TS sometimes loses control-flow narrowing with unions */
+function isLongestActivityDetail(x: unknown): x is LongestActivityDetail {
+  return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
 }
 
 const EARTH_CIRCUMFERENCE_MI = 24901;
@@ -130,18 +128,22 @@ const MARATHON_MI = 26.2188;
 const FIVEK_MI = 3.10686;
 const EVEREST_FT = 29032;
 
-function parseNumber(value: any): number {
+function toStringSafe(v: unknown): string {
+  return String(v ?? '').trim();
+}
+
+function parseNumber(value: unknown): number {
   if (value == null) return 0;
   const s = String(value).replace(/[^\d.\-]/g, '');
   const num = parseFloat(s);
   return Number.isFinite(num) ? num : 0;
 }
 
-function parseTimeToSeconds(value: any): number {
-  if (!value) return 0;
-  const s = String(value).trim();
+function parseTimeToSeconds(value: unknown): number {
+  const s = toStringSafe(value);
   if (!s) return 0;
-  const parts = s.split(":").map((p) => parseInt(p, 10));
+
+  const parts = s.split(':').map((p) => parseInt(p, 10));
   if (parts.some((p) => Number.isNaN(p))) return 0;
 
   if (parts.length === 3) {
@@ -155,9 +157,9 @@ function parseTimeToSeconds(value: any): number {
   return 0;
 }
 
-function parseDate(value: any): Date | null {
-  if (!value) return null;
-  const s = String(value).replace(/\u00A0/g, ' ').trim();
+function parseDate(value: unknown): Date | null {
+  const s = toStringSafe(value).replace(/\u00A0/g, ' ');
+  if (!s) return null;
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -192,11 +194,7 @@ function formatDurationHMS(totalSeconds: number): string {
 
 function formatDateDisplay(date: Date | null): string {
   if (!date) return '';
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function formatPacePerMile(totalSeconds: number, distanceMi: number): string {
@@ -219,9 +217,8 @@ function formatSwimPacePer100m(totalSeconds: number, meters: number): string {
   return `${min}:${sec.toString().padStart(2, '0')}/100m`;
 }
 
-function parseSleepDurationToMinutes(value: any): number {
-  if (!value) return 0;
-  const s = String(value).trim();
+function parseSleepDurationToMinutes(value: unknown): number {
+  const s = toStringSafe(value);
   if (!s) return 0;
   const match = s.match(/(?:(\d+)h)?\s*(?:(\d+)min)?/i);
   if (!match) return 0;
@@ -230,21 +227,33 @@ function parseSleepDurationToMinutes(value: any): number {
   return hours * 60 + mins;
 }
 
+/* field helpers to avoid index `any` casts */
+function getStringField(row: CsvRow, key: string): string {
+  return toStringSafe(row[key]);
+}
+function getNumberField(row: CsvRow, key: string): number {
+  return parseNumber(row[key]);
+}
+
+/* ------------------------------- Domain helpers ------------------------------ */
+
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
 
-function distanceMilesFromRow(row: any): number {
-  const raw = parseNumber(row['Distance']);
-  const activityType = String(row['Activity Type'] || '').trim();
+function distanceMilesFromRow(row: CsvRow): number {
+  const raw = getNumberField(row, 'Distance');
+  const activityType = getStringField(row, 'Activity Type');
   if (!raw || !activityType) return 0;
   const meterActivities = ['Track Running', 'Pool Swim', 'Swimming', 'Open Water Swimming'];
   if (meterActivities.includes(activityType)) return raw / 1609.34;
   return raw;
 }
 
-function computeMetrics(rows: any[]): Metrics {
+/* --------------------------------- Metrics ---------------------------------- */
+
+function computeMetrics(rows: CsvRow[]): Metrics {
   let totalDistanceMi = 0;
   let totalActivitySeconds = 0;
   let sessions = 0;
@@ -276,9 +285,9 @@ function computeMetrics(rows: any[]): Metrics {
   let highestCalorieDetail: HighestCalorieDetail | null = null;
 
   // Per-sport bests
-  let runLongest: { row: any; distanceMi: number } | null = null;
-  let bikeLongest: { row: any; distanceMi: number } | null = null;
-  let swimLongest: { row: any; distanceM: number } | null = null;
+  let runLongest: { row: CsvRow; distanceMi: number } | null = null;
+  let bikeLongest: { row: CsvRow; distanceMi: number } | null = null;
+  let swimLongest: { row: CsvRow; distanceM: number } | null = null;
 
   const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
   const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
@@ -288,7 +297,7 @@ function computeMetrics(rows: any[]): Metrics {
     Array.from({ length: 7 }, () => ({ seconds: 0, count: 0 }));
 
   rows.forEach((row) => {
-    const activityType = String(row['Activity Type'] || '').trim();
+    const activityType = getStringField(row, 'Activity Type');
 
     const hasAnyData =
       activityType || row['Distance'] || row['Time'] || row['Elapsed Time'] || row['Calories'];
@@ -299,25 +308,25 @@ function computeMetrics(rows: any[]): Metrics {
     const distanceMi = distanceMilesFromRow(row);
     totalDistanceMi += distanceMi;
 
-    const timeSeconds = parseTimeToSeconds(row['Time'] || row['Moving Time'] || row['Elapsed Time']);
+    const timeSeconds = parseTimeToSeconds(row['Time'] ?? row['Moving Time'] ?? row['Elapsed Time']);
     totalActivitySeconds += timeSeconds;
 
-    const calories = parseNumber(row['Calories']);
+    const calories = getNumberField(row, 'Calories');
     totalCalories += calories;
 
-    const maxHrRow = parseNumber(row['Max HR']);
+    const maxHrRow = getNumberField(row, 'Max HR');
     if (maxHrRow > maxHr) maxHr = maxHrRow;
 
-    const avgHrRow = parseNumber(row['Avg HR']);
+    const avgHrRow = getNumberField(row, 'Avg HR');
     if (avgHrRow > 0) {
       avgHrSum += avgHrRow;
       avgHrCount += 1;
     }
 
-    const ascent = parseNumber(row['Total Ascent']);
+    const ascent = getNumberField(row, 'Total Ascent');
     totalAscent += ascent;
 
-    const maxElev = parseNumber(row['Max Elevation']);
+    const maxElev = getNumberField(row, 'Max Elevation');
     if (maxElev > maxElevation) maxElevation = maxElev;
 
     if (activityType) {
@@ -375,7 +384,7 @@ function computeMetrics(rows: any[]): Metrics {
     }
 
     if (swimTypes.includes(activityType)) {
-      const meters = parseNumber(row['Distance']);
+      const meters = getNumberField(row, 'Distance');
       swimMeters += meters;
       swimSeconds += timeSeconds;
       swimSessions += 1;
@@ -384,8 +393,8 @@ function computeMetrics(rows: any[]): Metrics {
   });
 
   // Favorite activity
+  let favoriteActivity: Metrics['favoriteActivity'] | undefined;
   const activityNames = Object.keys(activityCounts);
-  let favoriteActivity: Metrics["favoriteActivity"] | undefined;
   if (activityNames.length) {
     activityNames.sort((a, b) => (activityCounts[b] ?? 0) - (activityCounts[a] ?? 0));
     const name = activityNames[0]!;
@@ -478,27 +487,26 @@ function computeMetrics(rows: any[]): Metrics {
     topActivityTypes = arr.slice(0, 3);
   }
 
-// Longest activity summary — FIXED narrowing (no && on the same line)
-let longestActivitySummary: Metrics["longestActivity"] | undefined;
-const lad = longestActivityDetail;
-// why: Vercel/TS sometimes loses RHS narrowing in compound conditions; split it.
-if (isLongestActivityDetail(lad)) {
-  const durationSeconds = lad.durationSeconds;
-  if (durationSeconds > 0) {
-    longestActivitySummary = {
-      title: String(lad.row["Title"] ?? "Unknown activity"),
-      date: formatDateDisplay(lad.date),
-      durationSeconds,
-      calories: parseNumber((lad.row as any)["Calories"])
-    };
+  // Longest activity summary — stable narrowing (two-step)
+  let longestActivitySummary: Metrics['longestActivity'] | undefined;
+  const lad = longestActivityDetail;
+  if (isLongestActivityDetail(lad)) {
+    const durationSeconds = lad.durationSeconds;
+    if (durationSeconds > 0) {
+      longestActivitySummary = {
+        title: getStringField(lad.row, 'Title') || 'Unknown activity',
+        date: formatDateDisplay(lad.date),
+        durationSeconds,
+        calories: getNumberField(lad.row, 'Calories'),
+      };
+    }
   }
-}
 
   // Highest calorie summary
   let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
   if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
     highestCalorieSummary = {
-      title: String(highestCalorieDetail.row['Title'] ?? 'Unknown activity'),
+      title: getStringField(highestCalorieDetail.row, 'Title') || 'Unknown activity',
       date: formatDateDisplay(highestCalorieDetail.date),
       calories: highestCalorieDetail.calories,
       durationSeconds: highestCalorieDetail.durationSeconds,
@@ -507,17 +515,17 @@ if (isLongestActivityDetail(lad)) {
 
   const runLongestOut =
     runLongest && runLongest.distanceMi > 0
-      ? { title: String(runLongest.row['Title'] ?? 'Longest run'), distanceMi: runLongest.distanceMi }
+      ? { title: getStringField(runLongest.row, 'Title') || 'Longest run', distanceMi: runLongest.distanceMi }
       : undefined;
 
   const bikeLongestOut =
     bikeLongest && bikeLongest.distanceMi > 0
-      ? { title: String(bikeLongest.row['Title'] ?? 'Longest ride'), distanceMi: bikeLongest.distanceMi }
+      ? { title: getStringField(bikeLongest.row, 'Title') || 'Longest ride', distanceMi: bikeLongest.distanceMi }
       : undefined;
 
   const swimLongestOut =
     swimLongest && swimLongest.distanceM > 0
-      ? { title: String(swimLongest.row['Title'] ?? 'Longest swim'), distanceM: swimLongest.distanceM }
+      ? { title: getStringField(swimLongest.row, 'Title') || 'Longest swim', distanceM: swimLongest.distanceM }
       : undefined;
 
   return {
@@ -559,15 +567,15 @@ if (isLongestActivityDetail(lad)) {
   };
 }
 
-function computeSleepMetrics(rows: any[]): SleepMetrics {
+function computeSleepMetrics(rows: CsvRow[]): SleepMetrics {
   let totalScore = 0, totalDurationMinutes = 0, count = 0;
   let bestScoreWeek: SleepMetrics['bestScoreWeek'] = null;
   let worstScoreWeek: SleepMetrics['worstScoreWeek'] = null;
   let longestSleepWeek: SleepMetrics['longestSleepWeek'] = null;
 
   rows.forEach((row) => {
-    const score = parseNumber(row['Avg Score']);
-    const label = String(row['Date'] || '').trim();
+    const score = getNumberField(row, 'Avg Score');
+    const label = getStringField(row, 'Date');
     const durationMinutes = parseSleepDurationToMinutes(row['Avg Duration']);
 
     if (!score && !durationMinutes && !label) return;
@@ -593,9 +601,7 @@ function computeSleepMetrics(rows: any[]): SleepMetrics {
   };
 }
 
-type RawRow = Record<string, any>;
-
-function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
+function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
   let periods = 0, totalSteps = 0, totalDays = 0;
   let bestWeek: StepsMetrics['bestWeek'] | null = null;
 
@@ -608,8 +614,8 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     const dateCol = row['Date'];
     const blankCol = row[''];
 
-    const dateStr = String(dateCol ?? '').trim();
-    const blankStr = String(blankCol ?? '').trim();
+    const dateStr = toStringSafe(dateCol);
+    const blankStr = toStringSafe(blankCol);
 
     if (
       (weekCol && String(weekCol).trim() !== '') ||
@@ -629,7 +635,8 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
     );
     if (!steps) return;
 
-    const label = (row['Week'] ?? row['Label'] ?? row['Start'] ?? row['Date'] ?? row[''] ?? '') + '';
+    const label = String(row['Week'] ?? row['Label'] ?? row['Start'] ?? row['Date'] ?? row[''] ?? '');
+
     const daysInPeriod = parseNumber(row['Days']) || (looksWeekly ? 7 : 1);
 
     periods += 1;
@@ -647,6 +654,8 @@ function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
   return { weeks: periods, totalSteps, avgStepsPerDay, bestWeek };
 }
 
+/* ---------------------------------- UI ---------------------------------- */
+
 function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
   return (
     <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-5 sm:p-6 flex flex-col gap-2 shadow-[0_0_40px_rgba(0,0,0,0.7)] hover:-translate-y-0.5 hover:border-zinc-500 transition">
@@ -654,8 +663,12 @@ function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
         <Icon className="w-4 h-4 text-zinc-300" />
         <span>{label}</span>
       </div>
-      <div className="text-2xl sm:text-3xl font-semibold text-zinc-50">{value || '--'}</div>
-      {helper && <div className="text-xs text-zinc-500">{helper}</div>}
+      <div className="text-2xl sm:text-3xl font-semibold text-zinc-50">
+        {value || '--'}
+      </div>
+      {helper && (
+        <div className="text-xs text-zinc-500">{helper}</div>
+      )}
     </div>
   );
 }
@@ -682,7 +695,9 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
+          const data = (results.data as CsvRow[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
           if (!data.length) {
             setError('Could not find any activity rows in that CSV.');
             setMetrics(null);
@@ -690,13 +705,13 @@ export default function Home() {
           }
           const m = computeMetrics(data);
           setMetrics(m);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(err);
           setError('Sorry, something went wrong reading that CSV.');
           setMetrics(null);
         }
       },
-      error: (err) => {
+      error: (err: unknown) => {
         console.error(err);
         setError('Failed to parse CSV file.');
         setMetrics(null);
@@ -714,7 +729,9 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
+          const data = (results.data as CsvRow[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
           if (!data.length) {
             setSleepError('Could not find any sleep rows in that CSV.');
             setSleepMetrics(null);
@@ -722,13 +739,13 @@ export default function Home() {
           }
           const m = computeSleepMetrics(data);
           setSleepMetrics(m);
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(err);
           setSleepError('Sorry, something went wrong reading that CSV.');
           setSleepMetrics(null);
         }
       },
-      error: (err) => {
+      error: (err: unknown) => {
         console.error(err);
         setSleepError('Failed to parse sleep CSV file.');
         setSleepMetrics(null);
@@ -746,7 +763,9 @@ export default function Home() {
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const data = (results.data as any[]).filter((row) => row && Object.keys(row).length > 0);
+          const data = (results.data as CsvRow[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
           if (!data.length) {
             setStepsError('Could not find any step rows in that CSV.');
             setStepsMetrics(null);
@@ -754,13 +773,16 @@ export default function Home() {
           }
           const m = computeStepsMetrics(data);
           setStepsMetrics(m);
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error(err);
-          setStepsError(err?.message || 'Sorry, something went wrong reading the steps CSV.');
+          setStepsError(
+            (err as { message?: string })?.message ||
+              'Sorry, something went wrong reading the steps CSV.',
+          );
           setStepsMetrics(null);
         }
       },
-      error: (err) => {
+      error: (err: unknown) => {
         console.error(err);
         setStepsError('Failed to parse steps CSV file.');
         setStepsMetrics(null);
@@ -770,6 +792,7 @@ export default function Home() {
 
   const handleDownloadImage = async () => {
     if (!pageRef.current) return;
+
     const node = pageRef.current;
 
     try {
@@ -802,25 +825,39 @@ export default function Home() {
   const caloriesStr = m?.totalCalories ? `${m.totalCalories.toLocaleString()} kcal` : '--';
   const sessionsStr = m ? `${m.sessions}` : '--';
 
-  const favActivityStr = m?.favoriteActivity &&
+  const favActivityStr =
+    m?.favoriteActivity &&
     `${m.favoriteActivity.name} · ${m.favoriteActivity.count} sessions`;
 
   const mostActiveMonthStr =
     m?.mostActiveMonth &&
     `${m.mostActiveMonth.name} · ${m.mostActiveMonth.totalHours.toFixed(1)} hrs`;
 
-  const streakStr = m?.longestStreak && m.longestStreak.lengthDays > 0
-    ? `${m.longestStreak.lengthDays} days` : '--';
+  const streakStr =
+    m?.longestStreak && m.longestStreak.lengthDays > 0
+      ? `${m.longestStreak.lengthDays} days`
+      : '--';
 
-  const streakRange = m?.longestStreak &&
+  const streakRange =
+    m?.longestStreak &&
     `${m.longestStreak.start} → ${m.longestStreak.end}`;
 
-  const totalAscentStr = m?.totalAscent != null ? `${Math.round(m.totalAscent)} ft` : '--';
-  const maxElevationStr = m?.maxElevation != null ? `${Math.round(m.maxElevation)} ft` : '--';
+  const totalAscentStr =
+    m?.totalAscent != null
+      ? `${Math.round(m.totalAscent)} ft`
+      : '--';
+  const maxElevationStr =
+    m?.maxElevation != null ? `${Math.round(m.maxElevation)} ft` : '--';
 
-  const avgDistanceStr = m?.avgDistanceMi != null ? `${m.avgDistanceMi.toFixed(2)} mi / session` : '--';
-  const avgDurationStr = m?.avgDurationSeconds != null ? `${formatDurationHMS(m.avgDurationSeconds)} / session` : '--';
-  const typesCountStr = m ? `${m.activityTypesCount}` : '--';
+  const avgDistanceStr =
+    m?.avgDistanceMi != null
+      ? `${m.avgDistanceMi.toFixed(2)} mi / session`
+      : '--';
+
+  const avgDurationStr =
+    m?.avgDurationSeconds != null
+      ? `${formatDurationHMS(m.avgDurationSeconds)} / session`
+      : '--';
 
   const longestActivity = m?.longestActivity;
   const highestCal = m?.highestCalorie;
@@ -832,20 +869,41 @@ export default function Home() {
       : 'Upload a CSV to see your year';
 
   // Sport-specific strings
-  const runDistanceStr = m?.runDistanceMi != null ? `${m.runDistanceMi.toFixed(1)} mi` : '--';
-  const runTimeStr = m?.runSeconds != null ? formatDurationHMS(m.runSeconds) : '--';
-  const runPaceStr = m?.runSeconds && m.runDistanceMi
-    ? formatPacePerMile(m.runSeconds, m.runDistanceMi) : '--';
+  const runDistanceStr =
+    m?.runDistanceMi != null
+      ? `${m.runDistanceMi.toFixed(1)} mi`
+      : '--';
+  const runTimeStr =
+    m?.runSeconds != null ? formatDurationHMS(m.runSeconds) : '--';
+  const runPaceStr =
+    m?.runSeconds && m.runDistanceMi
+      ? formatPacePerMile(m.runSeconds, m.runDistanceMi)
+      : '--';
 
-  const bikeDistanceStr = m?.bikeDistanceMi != null ? `${m.bikeDistanceMi.toFixed(1)} mi` : '--';
-  const bikeTimeStr = m?.bikeSeconds != null ? formatDurationHMS(m.bikeSeconds) : '--';
-  const bikeSpeedStr = m?.bikeDistanceMi && m.bikeSeconds
-    ? `${(m.bikeDistanceMi / (m.bikeSeconds / 3600)).toFixed(1)} mph` : '--';
+  const bikeDistanceStr =
+    m?.bikeDistanceMi != null
+      ? `${m.bikeDistanceMi.toFixed(1)} mi`
+      : '--';
+  const bikeTimeStr =
+    m?.bikeSeconds != null ? formatDurationHMS(m.bikeSeconds) : '--';
+  const bikeSpeedStr =
+    m?.bikeDistanceMi && m.bikeSeconds
+      ? `${(
+          m.bikeDistanceMi /
+          (m.bikeSeconds / 3600)
+        ).toFixed(1)} mph`
+      : '--';
 
-  const swimDistanceStr = m?.swimMeters != null ? `${m.swimMeters.toLocaleString()} m` : '--';
-  const swimTimeStr = m?.swimSeconds != null ? formatDurationHMS(m.swimSeconds) : '--';
-  const swimPaceStr = m?.swimSeconds && m.swimMeters
-    ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters) : '--';
+  const swimDistanceStr =
+    m?.swimMeters != null
+      ? `${m.swimMeters.toLocaleString()} m`
+      : '--';
+  const swimTimeStr =
+    m?.swimSeconds != null ? formatDurationHMS(m.swimSeconds) : '--';
+  const swimPaceStr =
+    m?.swimSeconds && m.swimMeters
+      ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters)
+      : '--';
 
   // Sleep
   const s = sleepMetrics;
@@ -858,31 +916,52 @@ export default function Home() {
         return `${h}h ${mR}m`;
       })()
     : '--';
-  const sleepGrade = s && s.avgScore
-    ? s.avgScore >= 85 ? 'A'
-      : s.avgScore >= 80 ? 'B+'
-      : s.avgScore >= 75 ? 'B' : 'C+'
-    : '--';
+
+  const sleepGrade =
+    s && s.avgScore
+      ? s.avgScore >= 85
+        ? 'A'
+        : s.avgScore >= 80
+        ? 'B+'
+        : s.avgScore >= 75
+        ? 'B'
+        : 'C+'
+      : '--';
 
   // Steps
   const step = stepsMetrics;
   const totalStepsStr = step ? step.totalSteps.toLocaleString() : null;
-  const avgStepsStr = step && step.avgStepsPerDay
-    ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day` : null;
+  const avgStepsStr =
+    step && step.avgStepsPerDay
+      ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
+      : null;
 
-  const marathonEqStr = m && m.totalDistanceMi ? (m.totalDistanceMi / MARATHON_MI).toFixed(1) : null;
-  const fiveKEqStr = m && m.totalDistanceMi ? (m.totalDistanceMi / FIVEK_MI).toFixed(1) : null;
+  const marathonEqStr =
+    m && m.totalDistanceMi
+      ? (m.totalDistanceMi / MARATHON_MI).toFixed(1)
+      : null;
+  const fiveKEqStr =
+    m && m.totalDistanceMi
+      ? (m.totalDistanceMi / FIVEK_MI).toFixed(1)
+      : null;
 
-  const everestsStr = m?.totalAscent != null && m.totalAscent > 0
-    ? (m.totalAscent / EVEREST_FT).toFixed(2) : null;
+  const everestsStr =
+    m?.totalAscent != null && m.totalAscent > 0
+      ? (m.totalAscent / EVEREST_FT).toFixed(2)
+      : null;
 
   return (
-    <div ref={pageRef} className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+    <div
+      ref={pageRef}
+      className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white"
+    >
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* Header */}
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">Garmin Wrapped</h1>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">
+              Garmin Wrapped
+            </h1>
             <p className="text-sm text-zinc-400">{dateRange}</p>
           </div>
 
@@ -890,19 +969,34 @@ export default function Home() {
             <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-4 h-4" />
               <span>Upload Garmin activities CSV</span>
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileChange} />
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleFileChange}
+              />
             </label>
 
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Sleep CSV (optional)</span>
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleSleepFileChange} />
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleSleepFileChange}
+              />
             </label>
 
             <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
               <Upload className="w-3 h-3" />
               <span>Upload Steps CSV (optional)</span>
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleStepsFileChange} />
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleStepsFileChange}
+              />
             </label>
 
             {metrics && (
@@ -917,12 +1011,25 @@ export default function Home() {
 
             {!metrics && (
               <p className="text-xs text-zinc-500 max-w-xs text-right">
-                Export your activities from Garmin Connect (&quot;All Activities&quot;) as CSV and drop it here.
+                Export your activities from Garmin Connect (&quot;All
+                Activities&quot;) as CSV and drop it here.
               </p>
             )}
-            {error && <p className="text-xs text-red-400 max-w-xs text-right">{error}</p>}
-            {sleepError && <p className="text-xs text-red-400 max-w-xs text-right">{sleepError}</p>}
-            {stepsError && <p className="text-xs text-red-400 max-w-xs text-right">{stepsError}</p>}
+            {error && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {error}
+              </p>
+            )}
+            {sleepError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {sleepError}
+              </p>
+            )}
+            {stepsError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {stepsError}
+              </p>
+            )}
           </div>
         </header>
 
