@@ -1,3 +1,4 @@
+// app/page.tsx
 'use client';
 
 import React, { useState, useRef } from 'react';
@@ -5,1458 +6,1729 @@ import Papa from 'papaparse';
 import * as htmlToImage from 'html-to-image';
 import {
   Activity,
-  Footprints,
-  Moon,
-  Download,
   Flame,
-  Bolt,
-  BarChart3,
+  HeartPulse,
+  LineChart,
+  Mountain,
+  Timer,
+  CalendarDays,
+  Trophy,
+  Dumbbell,
+  Zap,
+  Upload,
+  Layers,
+  Bike,
+  Waves,
 } from 'lucide-react';
 
-// ---------- Types ----------
-
-type CsvRow = Record<string, string | number | null | undefined>;
-
-type SportSummary = {
-  distanceMiles: number;
-  hours: number;
-  paceLabel: string;
-  bestTitle: string | null;
-  bestStat: string | null;
-  bestDate: Date | null;
-};
-
-type EffortSummary = {
-  longestTitle: string | null;
-  longestDate: Date | null;
-  longestHours: number;
-  longestDistanceMiles: number;
-  highestCalTitle: string | null;
-  highestCalDate: Date | null;
-  highestCalHours: number;
-  highestCalories: number;
-};
-
-type StreakSummary = {
-  longestStreakDays: number;
-  longestStreakStart: Date | null;
-  longestStreakEnd: Date | null;
-  busiestWeekHours: number;
-  busiestWeekActivities: number;
-  busiestWeekStart: Date | null;
-  busiestWeekEnd: Date | null;
-};
-
-type StepsSummary = {
-  totalSteps: number;
-  weeks: number;
-  avgPerDay: number;
-  bestWeekSteps: number;
-  bestWeekLabel: string | null;
-  milesFromSteps: number;
-};
-
-type SleepSummary = {
-  weeks: number;
-  avgHours: number;
-  avgScore: number;
-  bestHours: number;
-  bestWeekLabel: string | null;
+type ActivityTypeSummary = {
+  name: string;
+  count: number;
+  totalDistanceMi: number;
+  totalSeconds: number;
 };
 
 type Metrics = {
-  year: number;
-  totalActivities: number;
-  totalTrainingHours: number;
-  totalDistanceMiles: number;
-  totalCalories: number;
-  // distance breakdown
-  runningMiles: number;
-  cyclingMiles: number;
-  swimMiles: number;
-  // time by sport
-  running: SportSummary;
-  cycling: SportSummary;
-  swimming: SportSummary;
-  strengthHours: number;
-  // vertical
-  totalElevationFt: number;
-  maxElevationFt: number;
-  // efforts / streak
-  efforts: EffortSummary;
-  streak: StreakSummary;
-  // steps
-  steps: StepsSummary | null;
-  // sleep
-  sleep: SleepSummary | null;
+  totalDistanceMi: number;
+  earthPercent: number;
+  totalActivitySeconds: number;
+  sessions: number;
+  maxHr?: number;
+  avgHr?: number;
+  totalCalories?: number;
+  favoriteActivity?: { name: string; count: number };
+  mostActiveMonth?: { name: string; totalHours: number };
+  longestStreak?: { lengthDays: number; start: string; end: string };
+  longestActivity?: {
+    title: string;
+    date: string;
+    durationSeconds: number;
+    calories?: number;
+  };
+  highestCalorie?: {
+    title: string;
+    date: string;
+    calories: number;
+    durationSeconds?: number;
+  };
+  totalAscent?: number;
+  maxElevation?: number;
+  avgDistanceMi?: number;
+  avgDurationSeconds?: number;
+  activityTypesCount: number;
+  topActivityTypes?: ActivityTypeSummary[];
+  startDateDisplay?: string;
+  endDateDisplay?: string;
+
+  // By-sport breakdown
+  runDistanceMi?: number;
+  runSeconds?: number;
+  runSessions?: number;
+  bikeDistanceMi?: number;
+  bikeSeconds?: number;
+  bikeSessions?: number;
+  swimMeters?: number;
+  swimSeconds?: number;
+  swimSessions?: number;
+
+  // NEW: per-sport longest-by-distance
+  runLongest?: { title: string; distanceMi: number };
+  bikeLongest?: { title: string; distanceMi: number };
+  swimLongest?: { title: string; distanceM: number };
 };
 
-// ---------- Parsing helpers ----------
+type SleepMetrics = {
+  weeks: number;
+  avgScore: number;
+  avgDurationMinutes: number;
+  bestScoreWeek: {
+    label: string;
+    score: number;
+    durationMinutes: number;
+  } | null;
+  worstScoreWeek: {
+    label: string;
+    score: number;
+    durationMinutes: number;
+  } | null;
+  longestSleepWeek: {
+    label: string;
+    durationMinutes: number;
+    score: number;
+  } | null;
+};
 
-function parseNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value !== 'string') return 0;
-  const cleaned = value.replace(/,/g, '').trim();
-  if (!cleaned) return 0;
-  const match = cleaned.match(/-?\d+(\.\d+)?/);
-  return match ? Number(match[0]) : 0;
+type StepsMetrics = {
+  weeks: number;
+  totalSteps: number;
+  avgStepsPerDay: number;
+  bestWeek: { label: string; steps: number } | null;
+};
+
+type StatCardProps = {
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  value: string;
+  label: string;
+  helper?: string;
+};
+
+const EARTH_CIRCUMFERENCE_MI = 24901;
+// NEW: simple equivalence constants
+const MARATHON_MI = 26.2188; // 42.195 km
+const FIVEK_MI = 3.10686;    // 5 km
+const EVEREST_FT = 29032;    // 8,848.86 m
+
+// ---------- helpers ----------
+
+function parseNumber(value: any): number {
+  if (value == null) return 0;
+  const s = String(value).replace(/[^\d.\-]/g, '');
+  const num = parseFloat(s);
+  return Number.isFinite(num) ? num : 0;
 }
 
-function parseHms(value: unknown): number {
-  if (typeof value !== 'string') return 0;
-  const trimmed = value.trim();
-  if (!trimmed) return 0;
-  const parts = trimmed.split(':').map((p) => parseInt(p, 10));
-  if (parts.some((n) => Number.isNaN(n))) return 0;
-  let h = 0;
-  let m = 0;
-  let s = 0;
+function parseTimeToSeconds(value: any): number {
+  if (!value) return 0;
+  const s = String(value).trim();
+  if (!s) return 0;
+  const parts = s.split(':').map((p) => parseInt(p, 10));
+  if (parts.some((p) => Number.isNaN(p))) return 0;
   if (parts.length === 3) {
-    [h, m, s] = parts;
-  } else if (parts.length === 2) {
-    [m, s] = parts;
-  } else if (parts.length === 1) {
-    [s] = parts;
+    const [h, m, sec] = parts;
+    return h * 3600 + m * 60 + sec;
   }
-  return h * 3600 + m * 60 + s;
+  if (parts.length === 2) {
+    const [m, sec] = parts;
+    return m * 60 + sec;
+  }
+  return 0;
 }
 
-function parseDate(value: unknown): Date | null {
-  if (value == null) return null;
-  const d = new Date(String(value));
+function parseDate(value: any): Date | null {
+  if (!value) return null;
+  const s = String(value).replace(/\u00A0/g, ' ').trim();
+  const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function formatInt(num: number): string {
-  return Math.round(num).toLocaleString('en-US');
+function formatDurationLong(totalSeconds: number): string {
+  let s = Math.round(totalSeconds);
+  const days = Math.floor(s / 86400);
+  s -= days * 86400;
+  const hours = Math.floor(s / 3600);
+  s -= hours * 3600;
+  const minutes = Math.floor(s / 60);
+
+  const parts: string[] = [];
+  if (days) parts.push(`${days}day${days !== 1 ? 's' : ''}`);
+  if (hours) parts.push(`${hours}hrs`);
+  if (minutes || (!days && !hours)) parts.push(`${minutes}m`);
+  return parts.join(' ');
 }
 
-function formatOneDecimal(num: number): string {
-  return num.toLocaleString('en-US', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  });
+function formatDurationHMS(totalSeconds: number): string {
+  let s = Math.round(totalSeconds);
+  const hours = Math.floor(s / 3600);
+  s -= hours * 3600;
+  const minutes = Math.floor(s / 60);
+  s -= minutes * 60;
+  const seconds = s;
+
+  const parts: string[] = [];
+  if (hours) parts.push(`${hours}hrs`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || (!hours && !minutes)) parts.push(`${seconds}s`);
+  return parts.join(' ');
 }
 
-function formatPaceFromSeconds(secPerMile: number | null): string {
-  if (!secPerMile || !Number.isFinite(secPerMile) || secPerMile <= 0) return '--';
-  const total = Math.round(secPerMile);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}/mi`;
-}
-
-function formatSpeedMph(distanceMiles: number, hours: number): string {
-  if (!distanceMiles || !hours) return '--';
-  const mph = distanceMiles / hours;
-  return `${mph.toFixed(1)} mph`;
-}
-
-function formatSwimPace(per100mSeconds: number | null): string {
-  if (!per100mSeconds || per100mSeconds <= 0) return '--';
-  const total = Math.round(per100mSeconds);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}/100m`;
-}
-
-function formatDateShort(d: Date | null): string {
-  if (!d) return '--';
-  return d.toLocaleDateString('en-US', {
+function formatDateDisplay(date: Date | null): string {
+  if (!date) return '';
+  return date.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
 }
 
-function formatDateRange(start: Date | null, end: Date | null): string {
-  if (!start || !end) return '--';
-  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-  const s = start.toLocaleDateString('en-US', opts);
-  const e = end.toLocaleDateString('en-US', opts);
-  return `${s} — ${e}`;
+function formatPacePerMile(totalSeconds: number, distanceMi: number): string {
+  if (!totalSeconds || !distanceMi) return '--';
+  const secPerMile = totalSeconds / distanceMi;
+  const s = Math.round(secPerMile);
+  const min = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${min}:${sec.toString().padStart(2, '0')}/mi`;
 }
 
-// ---------- Activity metrics ----------
+function formatSwimPacePer100m(
+  totalSeconds: number,
+  meters: number,
+): string {
+  if (!totalSeconds || !meters) return '--';
+  const units = meters / 100;
+  if (!units) return '--';
+  const secPer100 = totalSeconds / units;
+  const s = Math.round(secPer100);
+  const min = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${min}:${sec.toString().padStart(2, '0')}/100m`;
+}
 
-type ParsedActivity = {
-  date: Date | null;
-  type: string;
-  title: string;
-  durationSec: number;
-  distanceMiles: number;
-  calories: number;
-  elevationGainFt: number;
-  maxElevationFt: number;
-};
+function parseSleepDurationToMinutes(value: any): number {
+  if (!value) return 0;
+  const s = String(value).trim();
+  if (!s) return 0;
 
-function inferDistanceMiles(activityType: string, distanceRaw: number): number {
-  const t = activityType.toLowerCase();
-  const metersSports =
-    t.includes('swim') || t.includes('pool swim') || t.includes('open water') || t.includes('track running');
-  if (metersSports) {
-    return distanceRaw / 1609.34;
+  const match = s.match(/(?:(\d+)h)?\s*(?:(\d+)min)?/i);
+  if (!match) return 0;
+
+  const hours = match[1] ? parseInt(match[1], 10) : 0;
+  const mins = match[2] ? parseInt(match[2], 10) : 0;
+  return hours * 60 + mins;
+}
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+// distance conversion: meters → miles for specific sports
+function distanceMilesFromRow(row: any): number {
+  const raw = parseNumber(row['Distance']);
+  const activityType = String(row['Activity Type'] || '').trim();
+
+  if (!raw || !activityType) return 0;
+
+  const meterActivities = [
+    'Track Running',
+    'Pool Swim',
+    'Swimming',
+    'Open Water Swimming',
+  ];
+
+  if (meterActivities.includes(activityType)) {
+    // meters → miles
+    return raw / 1609.34;
   }
-  return distanceRaw;
+
+  // everything else already in miles
+  return raw;
 }
 
-function parseActivities(rows: CsvRow[]): ParsedActivity[] {
-  const parsed: ParsedActivity[] = [];
+// ---------- activity metrics from activity CSV ----------
+
+function computeMetrics(rows: any[]): Metrics {
+  let totalDistanceMi = 0;
+  let totalActivitySeconds = 0;
+  let sessions = 0;
+  let totalCalories = 0;
+
+  let maxHr = 0;
+  let avgHrSum = 0;
+  let avgHrCount = 0;
+
+  let totalAscent = 0;
+  let maxElevation = 0;
+
+  const activityCounts: Record<string, number> = {};
+  const typeDistance: Record<string, number> = {};
+  const typeSeconds: Record<string, number> = {};
+  const monthSeconds: Record<string, { seconds: number; sampleDate: Date }> =
+    {};
+  const daySet = new Set<string>();
+
+  let earliestDate: Date | null = null;
+  let latestDate: Date | null = null;
+
+  // By-sport accumulators
+  let runDistanceMi = 0;
+  let runSeconds = 0;
+  let runSessions = 0;
+
+  let bikeDistanceMi = 0;
+  let bikeSeconds = 0;
+  let bikeSessions = 0;
+
+  let swimMeters = 0;
+  let swimSeconds = 0;
+  let swimSessions = 0;
+
+  // Internal accumulators
+  let longestActivityDetail: {
+    row: any;
+    durationSeconds: number;
+    date: Date | null;
+  } | null = null;
+  let highestCalorieDetail: {
+    row: any;
+    calories: number;
+    date: Date | null;
+    durationSeconds: number;
+  } | null = null;
+
+  // NEW: per-sport longest-by-distance (track max by distance)
+  let runLongest: { row: any; distanceMi: number } | null = null;
+  let bikeLongest: { row: any; distanceMi: number } | null = null;
+  let swimLongest: { row: any; distanceM: number } | null = null;
+
+  const runTypes = ['Running', 'Treadmill Running', 'Track Running'];
+  const bikeTypes = ['Cycling', 'Indoor Cycling', 'Virtual Cycling'];
+  const swimTypes = ['Pool Swim', 'Swimming', 'Open Water Swimming'];
 
   rows.forEach((row) => {
-    const type = String(row['Activity Type'] ?? '').trim();
-    if (!type) return;
+    const activityType = String(row['Activity Type'] || '').trim();
 
-    const date = parseDate(row['Date']);
-    const durationSec = parseHms(row['Time'] ?? row['Elapsed Time']);
-    const distanceRaw = parseNumber(row['Distance']);
-    const distanceMiles = inferDistanceMiles(type, distanceRaw);
+    const hasAnyData =
+      activityType ||
+      row['Distance'] ||
+      row['Time'] ||
+      row['Elapsed Time'] ||
+      row['Calories'];
+    if (!hasAnyData) return;
+
+    sessions += 1;
+
+    const distanceMi = distanceMilesFromRow(row);
+    totalDistanceMi += distanceMi;
+
+    const timeSeconds = parseTimeToSeconds(
+      row['Time'] || row['Moving Time'] || row['Elapsed Time'],
+    );
+    totalActivitySeconds += timeSeconds;
+
     const calories = parseNumber(row['Calories']);
-    const elevationGainFt = parseNumber(row['Elevation Gain']);
-    const maxElevationFt = parseNumber(row['Max Elevation']);
-    const title = String(row['Title'] ?? type);
+    totalCalories += calories;
 
-    parsed.push({
-      date,
-      type,
-      title,
-      durationSec,
-      distanceMiles,
-      calories,
-      elevationGainFt,
-      maxElevationFt,
-    });
-  });
+    const maxHrRow = parseNumber(row['Max HR']);
+    if (maxHrRow > maxHr) maxHr = maxHrRow;
 
-  return parsed;
-}
+    const avgHrRow = parseNumber(row['Avg HR']);
+    if (avgHrRow > 0) {
+      avgHrSum += avgHrRow;
+      avgHrCount += 1;
+    }
 
-function computeActivitiesMetrics(rows: CsvRow[], steps: StepsSummary | null, sleep: SleepSummary | null): Metrics {
-  const activities = parseActivities(rows);
-  const totalActivities = activities.length;
+    const ascent = parseNumber(row['Total Ascent']);
+    totalAscent += ascent;
 
-  const totalDurationSec = activities.reduce((sum, a) => sum + a.durationSec, 0);
-  const totalTrainingHours = totalDurationSec / 3600;
+    const maxElev = parseNumber(row['Max Elevation']);
+    if (maxElev > maxElevation) maxElevation = maxElev;
 
-  const totalDistanceMiles = activities.reduce((sum, a) => sum + a.distanceMiles, 0);
-  const totalCalories = activities.reduce((sum, a) => sum + a.calories, 0);
+    if (activityType) {
+      activityCounts[activityType] = (activityCounts[activityType] || 0) + 1;
+      typeDistance[activityType] =
+        (typeDistance[activityType] || 0) + distanceMi;
+      typeSeconds[activityType] =
+        (typeSeconds[activityType] || 0) + timeSeconds;
+    }
 
-  const year =
-    activities.find((a) => a.date)?.date?.getFullYear() ??
-    new Date().getFullYear();
+    // Date-based stuff
+    const date = parseDate(row['Date']);
+    if (date) {
+      const isoDay = date.toISOString().slice(0, 10);
+      daySet.add(isoDay);
 
-  // Sport filters
-  const running = activities.filter((a) =>
-    a.type.toLowerCase().includes('running'),
-  );
-  const cycling = activities.filter((a) =>
-    a.type.toLowerCase().includes('cycling'),
-  );
-  const swimming = activities.filter((a) =>
-    a.type.toLowerCase().includes('swim'),
-  );
-  const strength = activities.filter((a) =>
-    a.type.toLowerCase().includes('strength'),
-  );
+      if (!earliestDate || date < earliestDate) earliestDate = date;
+      if (!latestDate || date > latestDate) latestDate = date;
 
-  const sumMiles = (arr: ParsedActivity[]) =>
-    arr.reduce((sum, a) => sum + a.distanceMiles, 0);
-  const sumSec = (arr: ParsedActivity[]) =>
-    arr.reduce((sum, a) => sum + a.durationSec, 0);
+      const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+      if (!monthSeconds[monthKey]) {
+        monthSeconds[monthKey] = { seconds: 0, sampleDate: date };
+      }
+      monthSeconds[monthKey].seconds += timeSeconds;
+    }
 
-  const runningMiles = sumMiles(running);
-  const runningHours = sumSec(running) / 3600;
-  const runningPace = runningMiles ? sumSec(running) / runningMiles : null;
+    // Longest & highest-calorie activities (by duration / calories)
+    const durationSeconds = timeSeconds;
+    if (
+      durationSeconds > 0 &&
+      (!longestActivityDetail ||
+        durationSeconds > longestActivityDetail.durationSeconds)
+    ) {
+      longestActivityDetail = { row, durationSeconds, date };
+    }
 
-  const cyclingMiles = sumMiles(cycling);
-  const cyclingHours = sumSec(cycling) / 3600;
-
-  const swimMiles = sumMiles(swimming);
-  const swimMetersTotal = swimMiles * 1609.34;
-  const swimHours = sumSec(swimming) / 3600;
-  const swimPacePer100m =
-    swimMetersTotal > 0 ? (swimHours * 3600) / (swimMetersTotal / 100) : null;
-
-  const strengthHours = sumSec(strength) / 3600;
-
-  // Best-effort per sport (longest distance)
-  const byDistanceDesc = (a: ParsedActivity, b: ParsedActivity) =>
-    b.distanceMiles - a.distanceMiles;
-
-  const bestRun = [...running].sort(byDistanceDesc)[0];
-  const bestCycle = [...cycling].sort(byDistanceDesc)[0];
-  const bestSwim = [...swimming].sort(byDistanceDesc)[0];
-
-  const sportSummary = (base: ParsedActivity | undefined, sportMiles: number, sportHours: number, extraStat: string) => {
-    if (!sportMiles || !sportHours) {
-      return {
-        distanceMiles: 0,
-        hours: 0,
-        paceLabel: '--',
-        bestTitle: null,
-        bestStat: null,
-        bestDate: null,
+    if (
+      calories > 0 &&
+      (!highestCalorieDetail || calories > highestCalorieDetail.calories)
+    ) {
+      highestCalorieDetail = {
+        row,
+        calories,
+        date,
+        durationSeconds,
       };
     }
-    return {
-      distanceMiles: sportMiles,
-      hours: sportHours,
-      paceLabel: extraStat,
-      bestTitle: base ? base.title : null,
-      bestStat: base
-        ? `${formatOneDecimal(base.distanceMiles)} mi`
-        : null,
-      bestDate: base?.date ?? null,
-    };
-  };
 
-  const runningSummary: SportSummary = sportSummary(
-    bestRun,
-    runningMiles,
-    runningHours,
-    formatPaceFromSeconds(runningPace),
-  );
-
-  const cyclingSummary: SportSummary = sportSummary(
-    bestCycle,
-    cyclingMiles,
-    cyclingHours,
-    formatSpeedMph(cyclingMiles, cyclingHours),
-  );
-
-  const swimmingSummary: SportSummary = sportSummary(
-    bestSwim,
-    swimMiles,
-    swimHours,
-    formatSwimPace(swimPacePer100m),
-  );
-
-  // Vertical
-  const totalElevationFt = activities.reduce(
-    (sum, a) => sum + a.elevationGainFt,
-    0,
-  );
-  const maxElevationFt = activities.reduce(
-    (max, a) => Math.max(max, a.maxElevationFt),
-    0,
-  );
-
-  // Efforts
-  const longest = activities.reduce<ParsedActivity | null>(
-    (best, a) => (!best || a.durationSec > best.durationSec ? a : best),
-    null,
-  );
-  const highestCal = activities.reduce<ParsedActivity | null>(
-    (best, a) => (!best || a.calories > best.calories ? a : best),
-    null,
-  );
-
-  const efforts: EffortSummary = {
-    longestTitle: longest?.title ?? null,
-    longestDate: longest?.date ?? null,
-    longestHours: longest ? longest.durationSec / 3600 : 0,
-    longestDistanceMiles: longest?.distanceMiles ?? 0,
-    highestCalTitle: highestCal?.title ?? null,
-    highestCalDate: highestCal?.date ?? null,
-    highestCalHours: highestCal ? highestCal.durationSec / 3600 : 0,
-    highestCalories: highestCal?.calories ?? 0,
-  };
-
-  // Streaks
-  const uniqueDays = Array.from(
-    new Set(
-      activities
-        .map((a) => (a.date ? new Date(a.date.getFullYear(), a.date.getMonth(), a.date.getDate()).getTime() : null))
-        .filter((v): v is number => v !== null),
-    ),
-  )
-    .sort()
-    .map((t) => new Date(t));
-
-  let longestStreakDays = 0;
-  let longestStreakStart: Date | null = null;
-  let longestStreakEnd: Date | null = null;
-
-  if (uniqueDays.length) {
-    let currentStart = uniqueDays[0];
-    let currentPrev = uniqueDays[0];
-    let currentLen = 1;
-
-    for (let i = 1; i < uniqueDays.length; i++) {
-      const d = uniqueDays[i];
-      const diffDays = (d.getTime() - currentPrev.getTime()) / 86400000;
-      if (diffDays === 1) {
-        currentLen += 1;
-      } else {
-        if (currentLen > longestStreakDays) {
-          longestStreakDays = currentLen;
-          longestStreakStart = currentStart;
-          longestStreakEnd = currentPrev;
-        }
-        currentStart = d;
-        currentLen = 1;
+    // By-sport accumulation + NEW: longest-by-distance per sport
+    if (runTypes.includes(activityType)) {
+      runDistanceMi += distanceMi;
+      runSeconds += timeSeconds;
+      runSessions += 1;
+      if (!runLongest || distanceMi > runLongest.distanceMi) {
+        runLongest = { row, distanceMi };
       }
-      currentPrev = d;
     }
 
-    if (currentLen > longestStreakDays) {
-      longestStreakDays = currentLen;
-      longestStreakStart = currentStart;
-      longestStreakEnd = currentPrev;
+    if (bikeTypes.includes(activityType)) {
+      bikeDistanceMi += distanceMi;
+      bikeSeconds += timeSeconds;
+      bikeSessions += 1;
+      if (!bikeLongest || distanceMi > bikeLongest.distanceMi) {
+        bikeLongest = { row, distanceMi };
+      }
     }
+
+    if (swimTypes.includes(activityType)) {
+      const meters = parseNumber(row['Distance']); // swimming distance is meters
+      swimMeters += meters;
+      swimSeconds += timeSeconds;
+      swimSessions += 1;
+      if (!swimLongest || meters > swimLongest.distanceM) {
+        swimLongest = { row, distanceM: meters };
+      }
+    }
+  });
+
+  // Favorite activity
+  let favoriteActivity: Metrics['favoriteActivity'] | undefined;
+  const activityNames = Object.keys(activityCounts);
+  if (activityNames.length) {
+    activityNames.sort((a, b) => activityCounts[b] - activityCounts[a]);
+    const name = activityNames[0];
+    favoriteActivity = { name, count: activityCounts[name] };
   }
 
-// Busiest week (by hours)
-  type WeekAgg = {
-    key: string;
-    start: Date;
-    end: Date;
-    totalSec: number;
-    activities: number;
-  };
-
-  const weeksMap = new Map<string, WeekAgg>();
-
-  activities.forEach((a) => {
-    if (!a.date) return;
-    const d = a.date;
-
-    // Monday-based week bucket
-    const day = d.getDay(); // 0 = Sun
-    const mondayOffset = (day + 6) % 7;
-    const start = new Date(d);
-    start.setDate(d.getDate() - mondayOffset);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-
-    const key = start.toISOString();
-    const existing = weeksMap.get(key);
-
-    if (existing) {
-      existing.totalSec += a.durationSec;
-      existing.activities += 1;
-    } else {
-      weeksMap.set(key, {
-        key,
-        start,
-        end,
-        totalSec: a.durationSec,
-        activities: 1,
-      });
-    }
-  });
-
-  let busiestWeek: WeekAgg | null = null;
-
-  weeksMap.forEach((w) => {
-    if (!busiestWeek || w.totalSec > busiestWeek.totalSec) {
-      busiestWeek = w;
-    }
-  });
-
-  // Pull out into plain variables (with an explicit cast) so TS stops
-  // treating `busiestWeek` as `never`.
-  let busiestWeekHours = 0;
-  let busiestWeekActivities = 0;
-  let busiestWeekStart: Date | null = null;
-  let busiestWeekEnd: Date | null = null;
-
-  if (busiestWeek) {
-    const w = busiestWeek as WeekAgg; // <-- key line
-    busiestWeekHours = w.totalSec / 3600;
-    busiestWeekActivities = w.activities;
-    busiestWeekStart = w.start;
-    busiestWeekEnd = w.end;
+  // Most active month
+  let mostActiveMonth: Metrics['mostActiveMonth'] | undefined;
+  const monthKeys = Object.keys(monthSeconds);
+  if (monthKeys.length) {
+    monthKeys.sort(
+      (a, b) => monthSeconds[b].seconds - monthSeconds[a].seconds,
+    );
+    const key = monthKeys[0];
+    const [, monthIdxStr] = key.split('-');
+    const monthIdx = parseInt(monthIdxStr, 10);
+    const name = `${MONTH_NAMES[monthIdx]}`;
+    mostActiveMonth = {
+      name,
+      totalHours: monthSeconds[key].seconds / 3600,
+    };
   }
 
-  const streak: StreakSummary = {
-    longestStreakDays,
-    longestStreakStart,
-    longestStreakEnd,
-    busiestWeekHours,
-    busiestWeekActivities,
-    busiestWeekStart,
-    busiestWeekEnd,
-  };
+  // Longest streak
+  let longestStreak: Metrics['longestStreak'];
+  const daysSorted = Array.from(daySet).sort();
+  if (daysSorted.length) {
+    let bestLen = 1;
+    let bestStart = daysSorted[0];
+    let bestEnd = daysSorted[0];
 
+    let curLen = 1;
+    let curStart = daysSorted[0];
+
+    const toDate = (iso: string) => new Date(iso + 'T00:00:00');
+
+    for (let i = 1; i < daysSorted.length; i++) {
+      const prev = toDate(daysSorted[i - 1]);
+      const curr = toDate(daysSorted[i]);
+      const diffDays =
+        (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (Math.round(diffDays) === 1) {
+        curLen += 1;
+      } else {
+        if (curLen > bestLen) {
+          bestLen = curLen;
+          bestStart = curStart;
+          bestEnd = daysSorted[i - 1];
+        }
+        curLen = 1;
+        curStart = daysSorted[i];
+      }
+    }
+
+    if (curLen > bestLen) {
+      bestLen = curLen;
+      bestStart = curStart;
+      bestEnd = daysSorted[daysSorted.length - 1];
+    }
+
+    const startDate = toDate(bestStart);
+    const endDate = toDate(bestEnd);
+
+    longestStreak = {
+      lengthDays: bestLen,
+      start: formatDateDisplay(startDate),
+      end: formatDateDisplay(endDate),
+    };
+  }
+
+  const avgHr = avgHrCount ? avgHrSum / avgHrCount : undefined;
+  const earthPercent =
+    totalDistanceMi > 0
+      ? (totalDistanceMi / EARTH_CIRCUMFERENCE_MI) * 100
+      : 0;
+
+  const avgDistanceMi =
+    sessions > 0 ? totalDistanceMi / sessions : undefined;
+  const avgDurationSeconds =
+    sessions > 0 ? totalActivitySeconds / sessions : undefined;
+
+  const typeNames = Object.keys(activityCounts);
+  const activityTypesCount = typeNames.length;
+  let topActivityTypes: ActivityTypeSummary[] | undefined;
+  if (activityTypesCount) {
+    const arr: ActivityTypeSummary[] = typeNames.map((name) => ({
+      name,
+      count: activityCounts[name],
+      totalDistanceMi: typeDistance[name] || 0,
+      totalSeconds: typeSeconds[name] || 0,
+    }));
+    arr.sort((a, b) => b.count - a.count);
+    topActivityTypes = arr.slice(0, 3);
+  }
+
+  // Build longest activity summary
+  let longestActivitySummary: Metrics['longestActivity'] | undefined;
+  if (longestActivityDetail && longestActivityDetail.durationSeconds > 0) {
+    longestActivitySummary = {
+      title: String(
+        longestActivityDetail.row['Title'] || 'Unknown activity',
+      ),
+      date: formatDateDisplay(longestActivityDetail.date),
+      durationSeconds: longestActivityDetail.durationSeconds,
+      calories: parseNumber(longestActivityDetail.row['Calories']),
+    };
+  }
+
+  // Build highest calorie summary
+  let highestCalorieSummary: Metrics['highestCalorie'] | undefined;
+  if (highestCalorieDetail && highestCalorieDetail.calories > 0) {
+    highestCalorieSummary = {
+      title: String(
+        highestCalorieDetail.row['Title'] || 'Unknown activity',
+      ),
+      date: formatDateDisplay(highestCalorieDetail.date),
+      calories: highestCalorieDetail.calories,
+      durationSeconds: highestCalorieDetail.durationSeconds,
+    };
+  }
+
+  // NEW: build per-sport longest summaries
+  const runLongestOut =
+    runLongest && runLongest.distanceMi > 0
+      ? {
+          title: String(runLongest.row['Title'] || 'Longest run'),
+          distanceMi: runLongest.distanceMi,
+        }
+      : undefined;
+
+  const bikeLongestOut =
+    bikeLongest && bikeLongest.distanceMi > 0
+      ? {
+          title: String(bikeLongest.row['Title'] || 'Longest ride'),
+          distanceMi: bikeLongest.distanceMi,
+        }
+      : undefined;
+
+  const swimLongestOut =
+    swimLongest && swimLongest.distanceM > 0
+      ? {
+          title: String(swimLongest.row['Title'] || 'Longest swim'),
+          distanceM: swimLongest.distanceM,
+        }
+      : undefined;
 
   return {
-    year,
-    totalActivities,
-    totalTrainingHours,
-    totalDistanceMiles,
-    totalCalories,
-    runningMiles,
-    cyclingMiles,
-    swimMiles,
-    running: runningSummary,
-    cycling: cyclingSummary,
-    swimming: swimmingSummary,
-    strengthHours,
-    totalElevationFt,
-    maxElevationFt,
-    efforts,
-    streak,
-    steps,
-    sleep,
+    totalDistanceMi,
+    earthPercent,
+    totalActivitySeconds,
+    sessions,
+    maxHr: maxHr || undefined,
+    avgHr: avgHr || undefined,
+    totalCalories: totalCalories || undefined,
+    favoriteActivity,
+    mostActiveMonth,
+    longestStreak,
+    longestActivity: longestActivitySummary,
+    highestCalorie: highestCalorieSummary,
+    totalAscent: totalAscent || undefined,
+    maxElevation: maxElevation || undefined,
+    avgDistanceMi,
+    avgDurationSeconds,
+    activityTypesCount,
+    topActivityTypes,
+    startDateDisplay: formatDateDisplay(earliestDate),
+    endDateDisplay: formatDateDisplay(latestDate),
+    runDistanceMi: runDistanceMi || undefined,
+    runSeconds: runSeconds || undefined,
+    runSessions: runSessions || undefined,
+    bikeDistanceMi: bikeDistanceMi || undefined,
+    bikeSeconds: bikeSeconds || undefined,
+    bikeSessions: bikeSessions || undefined,
+    swimMeters: swimMeters || undefined,
+    swimSeconds: swimSeconds || undefined,
+    swimSessions: swimSessions || undefined,
+    // NEW:
+    runLongest: runLongestOut,
+    bikeLongest: bikeLongestOut,
+    swimLongest: swimLongestOut,
   };
 }
 
-// ---------- Steps metrics ----------
+// ---------- sleep metrics from Sleep CSV ----------
 
-function computeStepsMetrics(rows: CsvRow[]): StepsSummary | null {
-  // Expect weekly export: Date, Actual, Goal, Change
-  const weekly: { label: string; steps: number }[] = [];
+function computeSleepMetrics(rows: any[]): SleepMetrics {
+  let totalScore = 0;
+  let totalDurationMinutes = 0;
+  let count = 0;
 
-  rows.forEach((row) => {
-    const raw =
-      row['Actual'] ??
-      row['Steps'] ??
-      row['Total Steps'] ??
-      row['total_steps'];
-    const steps = parseNumber(raw);
-    if (!steps || steps <= 0) return;
-
-    const label = String(row['Date'] ?? row['Week'] ?? '').trim();
-    weekly.push({ label, steps });
-  });
-
-  if (!weekly.length) return null;
-
-  const totalSteps = weekly.reduce((sum, w) => sum + w.steps, 0);
-  const weeks = weekly.length;
-  const avgPerDay = totalSteps / (weeks * 7);
-
-  let best = weekly[0];
-  weekly.forEach((w) => {
-    if (w.steps > best.steps) best = w;
-  });
-
-  const stepsPerMile = 1842; // from your earlier sheet
-  const milesFromSteps = totalSteps / stepsPerMile;
-
-  return {
-    totalSteps,
-    weeks,
-    avgPerDay,
-    bestWeekSteps: best.steps,
-    bestWeekLabel: best.label || null,
-    milesFromSteps,
-  };
-}
-
-// ---------- Sleep metrics ----------
-
-function parseSleepHours(text: unknown): number {
-  if (typeof text !== 'string') return 0;
-  const t = text.trim();
-  if (!t) return 0;
-  const hMatch = t.match(/(\d+)\s*h/);
-  const mMatch = t.match(/(\d+)\s*min/);
-  const hours = hMatch ? parseInt(hMatch[1], 10) : 0;
-  const minutes = mMatch ? parseInt(mMatch[1], 10) : 0;
-  return hours + minutes / 60;
-}
-
-function computeSleepMetrics(rows: CsvRow[]): SleepSummary | null {
-  const weeksData: { label: string; hours: number; score: number }[] = [];
+  let bestScoreWeek: SleepMetrics['bestScoreWeek'] = null;
+  let worstScoreWeek: SleepMetrics['worstScoreWeek'] = null;
+  let longestSleepWeek: SleepMetrics['longestSleepWeek'] = null;
 
   rows.forEach((row) => {
-    const hours = parseSleepHours(row['Avg Duration']);
     const score = parseNumber(row['Avg Score']);
-    if (!hours || hours <= 0) return;
+    const label = String(row['Date'] || '').trim();
+    const durationMinutes = parseSleepDurationToMinutes(
+      row['Avg Duration'],
+    );
 
-    const label = String(row['Date'] ?? row['Week'] ?? '').trim();
-    weeksData.push({ label, hours, score });
-  });
+    if (!score && !durationMinutes && !label) return;
 
-  if (!weeksData.length) return null;
+    totalScore += score;
+    totalDurationMinutes += durationMinutes;
+    count += 1;
 
-  const weeks = weeksData.length;
-  const avgHours =
-    weeksData.reduce((sum, w) => sum + w.hours, 0) / weeks;
-  const avgScore =
-    weeksData.reduce((sum, w) => sum + w.score, 0) / weeks;
+    if (!bestScoreWeek || score > bestScoreWeek.score) {
+      bestScoreWeek = { label, score, durationMinutes };
+    }
 
-  let best = weeksData[0];
-  weeksData.forEach((w) => {
-    if (w.hours > best.hours) best = w;
+    if (!worstScoreWeek || score < worstScoreWeek.score) {
+      worstScoreWeek = { label, score, durationMinutes };
+    }
+
+    if (
+      !longestSleepWeek ||
+      durationMinutes > longestSleepWeek.durationMinutes
+    ) {
+      longestSleepWeek = { label, durationMinutes, score };
+    }
   });
 
   return {
-    weeks,
-    avgHours,
-    avgScore,
-    bestHours: best.hours,
-    bestWeekLabel: best.label || null,
+    weeks: count,
+    avgScore: count ? totalScore / count : 0,
+    avgDurationMinutes: count ? totalDurationMinutes / count : 0,
+    bestScoreWeek,
+    worstScoreWeek,
+    longestSleepWeek,
+  };
+}
+
+// ---------- steps metrics from Steps CSV ----------
+
+type RawRow = Record<string, any>;
+
+function computeStepsMetrics(rows: RawRow[]): StepsMetrics {
+  let periods = 0;
+  let totalSteps = 0;
+  let totalDays = 0;
+  let bestWeek: StepsMetrics['bestWeek'] | undefined;
+
+  const rowCount = rows.length || 0;
+  let looksWeekly = rowCount > 0 && rowCount <= 60;
+
+  for (const row of rows) {
+    const weekCol = row['Week'];
+    const labelCol = row['Label'];
+    const dateCol = row['Date'];
+    const blankCol = row[''];
+
+    const dateStr = String(dateCol ?? '').trim();
+    const blankStr = String(blankCol ?? '').trim();
+
+    if (
+      (weekCol && String(weekCol).trim() !== '') ||
+      (typeof labelCol === 'string' && /week/i.test(labelCol)) ||
+      (dateStr && dateStr.includes(' - ')) ||
+      (blankStr && blankStr.includes(' - ')) ||
+      (blankStr && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(blankStr))
+    ) {
+      looksWeekly = true;
+      break;
+    }
+  }
+
+  rows.forEach((row) => {
+    const steps = parseNumber(
+      row['Steps'] ??
+        row['Total Steps'] ??
+        row['Total steps'] ??
+        row['Weekly Steps'] ??
+        row['Actual']
+    );
+    if (!steps) return;
+
+    const label =
+      (row['Week'] ??
+        row['Label'] ??
+        row['Start'] ??
+        row['Date'] ??
+        row[''] ??
+        '') + '';
+
+    const daysInPeriod =
+      parseNumber(row['Days']) || (looksWeekly ? 7 : 1);
+
+    periods += 1;
+    totalSteps += steps;
+    totalDays += daysInPeriod;
+
+    if (!bestWeek || steps > bestWeek.steps) {
+      bestWeek = {
+        label: label || (looksWeekly ? `Week ${periods}` : `Day ${periods}`),
+        steps,
+      };
+    }
+  });
+
+  const days =
+    totalDays || (looksWeekly ? periods * 7 : periods || 1);
+  const avgStepsPerDay = totalSteps / days;
+
+  return {
+    weeks: periods,
+    totalSteps,
+    avgStepsPerDay,
+    bestWeek,
   };
 }
 
 // ---------- UI components ----------
 
-function UploadButton({
-  label,
-  icon: Icon,
-  onChange,
-}: {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onChange: (file: File) => void;
-}) {
+function StatCard({ icon: Icon, value, label, helper }: StatCardProps) {
   return (
-    <label className="relative flex items-center gap-2 rounded-full border border-emerald-400/60 bg-slate-900/70 px-4 py-1.5 text-xs font-medium text-slate-50 shadow-[0_0_25px_rgba(45,212,191,0.4)] backdrop-blur hover:border-emerald-300 hover:bg-slate-900/90 cursor-pointer">
-      <Icon className="h-3.5 w-3.5 text-emerald-300" />
-      <span>{label}</span>
-      <input
-        type="file"
-        accept=".csv"
-        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onChange(file);
-          e.target.value = '';
-        }}
-      />
-    </label>
+    <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-5 sm:p-6 flex flex-col gap-2 shadow-[0_0_40px_rgba(0,0,0,0.7)] hover:-translate-y-0.5 hover:border-zinc-500 transition">
+      <div className="flex items-center gap-2 text-xs text-zinc-400 uppercase tracking-wide">
+        <Icon className="w-4 h-4 text-zinc-300" />
+        <span>{label}</span>
+      </div>
+      <div className="text-2xl sm:text-3xl font-semibold text-zinc-50">
+        {value || '--'}
+      </div>
+      {helper && (
+        <div className="text-xs text-zinc-500">{helper}</div>
+      )}
+    </div>
   );
 }
-
-function Tile({
-  children,
-  className = '',
-  gradient = 'from-cyan-400/40 via-emerald-400/20 to-blue-500/40',
-}: {
-  children: React.ReactNode;
-  className?: string;
-  gradient?: string;
-}) {
-  return (
-    <section
-      className={`relative overflow-hidden rounded-3xl border border-white/8 bg-slate-950/90 px-5 py-4 shadow-[0_0_45px_rgba(15,23,42,0.95)] backdrop-blur-xl ${className}`}
-    >
-      <div
-        className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${gradient} opacity-70 mix-blend-screen`}
-      />
-      <div className="pointer-events-none absolute -top-20 left-10 h-40 w-40 rounded-full bg-white/10 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-24 right-10 h-48 w-48 rounded-full bg-white/5 blur-3xl" />
-      <div className="relative z-10">{children}</div>
-    </section>
-  );
-}
-
-// ---------- Main Page ----------
 
 export default function Home() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [stepsSummary, setStepsSummary] = useState<StepsSummary | null>(null);
-  const [sleepSummary, setSleepSummary] = useState<SleepSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [sleepMetrics, setSleepMetrics] = useState<SleepMetrics | null>(
+    null,
+  );
+  const [sleepError, setSleepError] = useState<string | null>(null);
 
-  const handleActivitiesUpload = (file: File) => {
+  const [stepsMetrics, setStepsMetrics] = useState<StepsMetrics | null>(
+    null,
+  );
+  const [stepsError, setStepsError] = useState<string | null>(null);
+
+  const pageRef = useRef<HTMLDivElement | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     setError(null);
-    Papa.parse<CsvRow>(file, {
+
+    Papa.parse(file, {
       header: true,
-      dynamicTyping: false,
       skipEmptyLines: true,
-      complete: (result) => {
-        const rows = (result.data ?? []) as CsvRow[];
-        const merged = computeActivitiesMetrics(
-          rows,
-          stepsSummary,
-          sleepSummary,
-        );
-        setMetrics(merged);
+      complete: (results) => {
+        try {
+          const data = (results.data as any[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
+          if (!data.length) {
+            setError('Could not find any activity rows in that CSV.');
+            setMetrics(null);
+            return;
+          }
+          const m = computeMetrics(data);
+          setMetrics(m);
+        } catch (err) {
+          console.error(err);
+          setError('Sorry, something went wrong reading that CSV.');
+          setMetrics(null);
+        }
       },
-      error: (err) => setError(`Failed to parse activities CSV: ${err.message}`),
+      error: (err) => {
+        console.error(err);
+        setError('Failed to parse CSV file.');
+        setMetrics(null);
+      },
     });
   };
 
-  const handleStepsUpload = (file: File) => {
-    setError(null);
-    Papa.parse<CsvRow>(file, {
+  const handleSleepFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSleepError(null);
+
+    Papa.parse(file, {
       header: true,
-      dynamicTyping: false,
       skipEmptyLines: true,
-      complete: (result) => {
-        const rows = (result.data ?? []) as CsvRow[];
-        const steps = computeStepsMetrics(rows);
-        setStepsSummary(steps);
-        setMetrics((prev) =>
-          prev ? { ...prev, steps } : prev,
-        );
+      complete: (results) => {
+        try {
+          const data = (results.data as any[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
+          if (!data.length) {
+            setSleepError('Could not find any sleep rows in that CSV.');
+            setSleepMetrics(null);
+            return;
+          }
+          const m = computeSleepMetrics(data);
+          setSleepMetrics(m);
+        } catch (err) {
+          console.error(err);
+          setSleepError('Sorry, something went wrong reading that CSV.');
+          setSleepMetrics(null);
+        }
       },
-      error: (err) => setError(`Failed to parse steps CSV: ${err.message}`),
+      error: (err) => {
+        console.error(err);
+        setSleepError('Failed to parse sleep CSV file.');
+        setSleepMetrics(null);
+      },
     });
   };
 
-  const handleSleepUpload = (file: File) => {
-    setError(null);
-    Papa.parse<CsvRow>(file, {
+  const handleStepsFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setStepsError(null);
+
+    Papa.parse(file, {
       header: true,
-      dynamicTyping: false,
       skipEmptyLines: true,
-      complete: (result) => {
-        const rows = (result.data ?? []) as CsvRow[];
-        const sleep = computeSleepMetrics(rows);
-        setSleepSummary(sleep);
-        setMetrics((prev) =>
-          prev ? { ...prev, sleep } : prev,
-        );
+      complete: (results) => {
+        try {
+          const data = (results.data as any[]).filter(
+            (row) => row && Object.keys(row).length > 0,
+          );
+          if (!data.length) {
+            setStepsError('Could not find any step rows in that CSV.');
+            setStepsMetrics(null);
+            return;
+          }
+          const m = computeStepsMetrics(data);
+          setStepsMetrics(m);
+        } catch (err: any) {
+          console.error(err);
+          setStepsError(
+            err?.message ||
+              'Sorry, something went wrong reading the steps CSV.',
+          );
+          setStepsMetrics(null);
+        }
       },
-      error: (err) => setError(`Failed to parse sleep CSV: ${err.message}`),
+      error: (err) => {
+        console.error(err);
+        setStepsError('Failed to parse steps CSV file.');
+        setStepsMetrics(null);
+      },
     });
   };
 
   const handleDownloadImage = async () => {
-    if (!wrapperRef.current) return;
+    if (!pageRef.current) return;
+
+    const node = pageRef.current;
+
     try {
-      const dataUrl = await htmlToImage.toPng(wrapperRef.current, {
+      const dataUrl = await htmlToImage.toPng(node, {
         cacheBust: true,
-        pixelRatio: 2,
-        backgroundColor: '#020617',
+        width: node.scrollWidth,
+        height: node.scrollHeight,
+        backgroundColor: '#000000',
       });
+
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = 'garmin-wrapped-2025.png';
+      link.download = 'garmin-wrapped.png';
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
     } catch (err) {
-      console.error(err);
-      setError('Unable to generate image. Try again after the page fully loads.');
+      console.error('Failed to generate image', err);
+      alert('Sorry, something went wrong generating the image.');
     }
   };
 
-  const year = metrics?.year ?? new Date().getFullYear();
-  const steps = metrics?.steps ?? stepsSummary ?? null;
-  const sleep = metrics?.sleep ?? sleepSummary ?? null;
+  const m = metrics;
+
+  const distanceStr = m
+    ? `${m.totalDistanceMi.toFixed(2)} mi`
+    : '--';
+  const earthPercentStr = m
+    ? `${m.earthPercent.toFixed(2)}%`
+    : '--';
+  const totalTimeStr = m
+    ? formatDurationLong(m.totalActivitySeconds)
+    : '--';
+  const maxHrStr = m?.maxHr ? `${Math.round(m.maxHr)} bpm` : '--';
+  const avgHrStr = m?.avgHr ? `${Math.round(m.avgHr)} bpm` : '--';
+  const caloriesStr = m?.totalCalories
+    ? `${m.totalCalories.toLocaleString()} kcal`
+    : '--';
+  const sessionsStr = m ? `${m.sessions}` : '--';
+
+  const favActivityStr =
+    m?.favoriteActivity &&
+    `${m.favoriteActivity.name} · ${m.favoriteActivity.count} sessions`;
+
+  const mostActiveMonthStr =
+    m?.mostActiveMonth &&
+    `${m.mostActiveMonth.name} · ${m.mostActiveMonth.totalHours.toFixed(
+      1,
+    )} hrs`;
+
+  const streakStr =
+    m?.longestStreak && m.longestStreak.lengthDays > 0
+      ? `${m.longestStreak.lengthDays} days`
+      : '--';
+
+  const streakRange =
+    m?.longestStreak &&
+    `${m.longestStreak.start} → ${m.longestStreak.end}`;
+
+  const totalAscentStr =
+    m?.totalAscent != null
+      ? `${Math.round(m.totalAscent)} ft`
+      : '--';
+  const maxElevationStr =
+    m?.maxElevation != null ? `${Math.round(m.maxElevation)} ft` : '--';
+
+  const avgDistanceStr =
+    m?.avgDistanceMi != null
+      ? `${m.avgDistanceMi.toFixed(2)} mi / session`
+      : '--';
+
+  const avgDurationStr =
+    m?.avgDurationSeconds != null
+      ? `${formatDurationHMS(m.avgDurationSeconds)} / session`
+      : '--';
+
+  const typesCountStr = m ? `${m.activityTypesCount}` : '--';
+
+  const longestActivity = m?.longestActivity;
+  const highestCal = m?.highestCalorie;
+  const topTypes = m?.topActivityTypes || [];
+
+  const dateRange =
+    m?.startDateDisplay && m?.endDateDisplay
+      ? `${m.startDateDisplay} – ${m.endDateDisplay}`
+      : 'Upload a CSV to see your year';
+
+  // Sport-specific strings
+  const runDistanceStr =
+    m?.runDistanceMi != null
+      ? `${m.runDistanceMi.toFixed(1)} mi`
+      : '--';
+  const runTimeStr =
+    m?.runSeconds != null ? formatDurationHMS(m.runSeconds) : '--';
+  const runPaceStr =
+    m?.runSeconds && m.runDistanceMi
+      ? formatPacePerMile(m.runSeconds, m.runDistanceMi)
+      : '--';
+
+  const bikeDistanceStr =
+    m?.bikeDistanceMi != null
+      ? `${m.bikeDistanceMi.toFixed(1)} mi`
+      : '--';
+  const bikeTimeStr =
+    m?.bikeSeconds != null ? formatDurationHMS(m.bikeSeconds) : '--';
+  const bikeSpeedStr =
+    m?.bikeDistanceMi && m.bikeSeconds
+      ? `${(
+          m.bikeDistanceMi /
+          (m.bikeSeconds / 3600)
+        ).toFixed(1)} mph`
+      : '--';
+
+  const swimDistanceStr =
+    m?.swimMeters != null
+      ? `${m.swimMeters.toLocaleString()} m`
+      : '--';
+  const swimTimeStr =
+    m?.swimSeconds != null ? formatDurationHMS(m.swimSeconds) : '--';
+  const swimPaceStr =
+    m?.swimSeconds && m.swimMeters
+      ? formatSwimPacePer100m(m.swimSeconds, m.swimMeters)
+      : '--';
+
+  // NEW: per-sport longest strings
+  const runLongestStr =
+    m?.runLongest
+      ? `${m.runLongest.title} — ${m.runLongest.distanceMi.toFixed(1)} mi`
+      : null;
+  const bikeLongestStr =
+    m?.bikeLongest
+      ? `${m.bikeLongest.title} — ${m.bikeLongest.distanceMi.toFixed(1)} mi`
+      : null;
+  const swimLongestStr =
+    m?.swimLongest
+      ? `${m.swimLongest.title} — ${m.swimLongest.distanceM.toLocaleString()} m`
+      : null;
+
+  // Sleep strings
+  const s = sleepMetrics;
+  const avgSleepScoreStr = s
+    ? s.avgScore.toFixed(1)
+    : '--';
+  const avgSleepDurationStr = s
+    ? (() => {
+        const mins = s.avgDurationMinutes;
+        const h = Math.floor(mins / 60);
+        const mR = Math.round(mins % 60);
+        return `${h}h ${mR}m`;
+      })()
+    : '--';
+
+  const sleepGrade =
+    s && s.avgScore
+      ? s.avgScore >= 85
+        ? 'A'
+        : s.avgScore >= 80
+        ? 'B+'
+        : s.avgScore >= 75
+        ? 'B'
+        : 'C+'
+      : '--';
+
+  // Steps strings
+  const step = stepsMetrics;
+  const totalStepsStr = step
+    ? step.totalSteps.toLocaleString()
+    : null;
+  const avgStepsStr =
+    step && step.avgStepsPerDay
+      ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
+      : null;
+
+  // NEW: marathon / 5k equivalents
+  const marathonEqStr =
+    m && m.totalDistanceMi
+      ? (m.totalDistanceMi / MARATHON_MI).toFixed(1)
+      : null;
+  const fiveKEqStr =
+    m && m.totalDistanceMi
+      ? (m.totalDistanceMi / FIVEK_MI).toFixed(1)
+      : null;
+
+  // NEW: Everests
+  const everestsStr =
+    m?.totalAscent != null && m.totalAscent > 0
+      ? (m.totalAscent / EVEREST_FT).toFixed(2)
+      : null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 pb-20 pt-6">
-        {/* Top controls */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs font-medium text-slate-400">
-            Garmin Wrapped <span className="text-emerald-300">{year}</span>
+    <div
+      ref={pageRef}
+      className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white"
+    >
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+        {/* Top header + upload */}
+        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">
+              Garmin Wrapped
+            </h1>
+            <p className="text-sm text-zinc-400">{dateRange}</p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <UploadButton
-              label="Upload activities CSV"
-              icon={Activity}
-              onChange={handleActivitiesUpload}
-            />
-            <UploadButton
-              label="Upload steps CSV"
-              icon={Footprints}
-              onChange={handleStepsUpload}
-            />
-            <UploadButton
-              label="Upload sleep CSV"
-              icon={Moon}
-              onChange={handleSleepUpload}
-            />
-            <button
-              onClick={handleDownloadImage}
-              className="flex items-center gap-2 rounded-full border border-slate-500/60 bg-slate-900/80 px-4 py-1.5 text-xs font-medium text-slate-100 hover:border-slate-300 hover:bg-slate-800/90"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Download as image
-            </button>
+
+          <div className="flex flex-col items-start sm:items-end gap-2">
+            {/* Activities upload */}
+            <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
+              <Upload className="w-4 h-4" />
+              <span>Upload Garmin activities CSV</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </label>
+
+            {/* Sleep upload */}
+            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
+              <Upload className="w-3 h-3" />
+              <span>Upload Sleep CSV (optional)</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleSleepFileChange}
+              />
+            </label>
+
+            {/* Steps upload */}
+            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
+              <Upload className="w-3 h-3" />
+              <span>Upload Steps CSV (optional)</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleStepsFileChange}
+              />
+            </label>
+
+            {/* Download button */}
+            {metrics && (
+              <button
+                type="button"
+                onClick={handleDownloadImage}
+                className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/80 border border-zinc-600 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
+              >
+                Download as image
+              </button>
+            )}
+
+            {!metrics && (
+              <p className="text-xs text-zinc-500 max-w-xs text-right">
+                Export your activities from Garmin Connect (&quot;All
+                Activities&quot;) as CSV and drop it here.
+              </p>
+            )}
+            {error && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {error}
+              </p>
+            )}
+            {sleepError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {sleepError}
+              </p>
+            )}
+            {stepsError && (
+              <p className="text-xs text-red-400 max-w-xs text-right">
+                {stepsError}
+              </p>
+            )}
           </div>
-        </div>
+        </header>
 
-        {error && (
-          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-xs text-red-100">
-            {error}
-          </div>
-        )}
+        {metrics && (
+          <div className="space-y-8">
+            {/* Hero + key stats grid */}
+            <section className="grid gap-5 md:grid-cols-3">
+              {/* Hero distance tile */}
+              <div className="md:col-span-2 bg-gradient-to-br from-indigo-600/40 via-purple-700/30 to-zinc-900/90 border border-purple-500/40 rounded-3xl p-6 sm:p-7 shadow-[0_0_50px_rgba(0,0,0,0.9)]">
+                <div className="flex items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-2xl bg-black/50 flex items-center justify-center border border-white/10">
+                      <Activity className="w-5 h-5 text-indigo-200" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-indigo-200/80">
+                        Distance traveled
+                      </p>
+                      <p className="text-xs text-zinc-300">
+                        Powered by Garmin activities
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-zinc-400">
+                    {m?.startDateDisplay} → {m?.endDateDisplay}
+                  </div>
+                </div>
 
-        {/* Wrapped content */}
-        <div
-          ref={wrapperRef}
-          className="mx-auto flex w-full max-w-5xl flex-col gap-5 rounded-[40px] bg-slate-950/90 p-5 shadow-[0_0_55px_rgba(15,23,42,0.95)]"
-        >
-          {/* HERO */}
-          <Tile
-            gradient="from-cyan-400/40 via-emerald-300/25 to-purple-500/40"
-            className="pb-5 pt-6"
-          >
-            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-              <div>
-                <div className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-200/80">
-                  {year} • GARMIN WRAPPED
-                </div>
-                <h1 className="mt-2 text-2xl font-semibold text-slate-50">
-                  Your year in movement
-                </h1>
-                <p className="mt-2 max-w-md text-xs text-slate-100/90">
-                  From lifts and Zwift to long runs and high-altitude hiking,
-                  here&apos;s what your watch saw this year.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[0.65rem] md:grid-cols-4">
-                <div className="rounded-2xl bg-slate-950/60 px-3 py-2">
-                  <div className="uppercase tracking-[0.18em] text-slate-400">
-                    Activities
-                  </div>
-                  <div className="mt-1 text-sm font-semibold">
-                    {metrics ? formatInt(metrics.totalActivities) : '—'}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/60 px-3 py-2">
-                  <div className="uppercase tracking-[0.18em] text-slate-400">
-                    Training time
-                  </div>
-                  <div className="mt-1 text-sm font-semibold">
-                    {metrics
-                      ? `${formatInt(metrics.totalTrainingHours)} h`
-                      : '—'}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/60 px-3 py-2">
-                  <div className="uppercase tracking-[0.18em] text-slate-400">
-                    Distance travelled
-                  </div>
-                  <div className="mt-1 text-sm font-semibold">
-                    {metrics
-                      ? `${formatInt(metrics.totalDistanceMiles)} mi`
-                      : '—'}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/60 px-3 py-2">
-                  <div className="uppercase tracking-[0.18em] text-slate-400">
-                    Calories burned
-                  </div>
-                  <div className="mt-1 text-sm font-semibold">
-                    {metrics
-                      ? `${formatInt(metrics.totalCalories)} kcal`
-                      : '—'}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {/* steps hero strip */}
-            <div className="mt-4 rounded-2xl border border-emerald-300/40 bg-slate-950/80 px-4 py-2 text-[0.65rem] text-slate-100 shadow-[0_0_25px_rgba(45,212,191,0.35)]">
-              {steps ? (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
-                  <span className="flex items-center gap-1 font-semibold text-emerald-300">
-                    <Footprints className="h-3 w-3" />
-                    Steps wrapped
-                  </span>
-                  <span>
-                    {formatInt(steps.totalSteps)} steps • ~
-                    {formatInt(steps.milesFromSteps)} mi on foot
-                  </span>
-                  <span className="text-slate-300/90">
-                    Best week:{' '}
-                    <span className="font-semibold">
-                      {formatInt(steps.bestWeekSteps)} steps
-                    </span>{' '}
-                    {steps.bestWeekLabel && `(${steps.bestWeekLabel})`}
-                  </span>
-                </div>
-              ) : (
-                <span className="flex items-center gap-1">
-                  <Footprints className="h-3 w-3 text-emerald-300" />
-                  Upload a Steps CSV to see total steps, best week, and your
-                  day-to-day walking vibe.
-                </span>
-              )}
-            </div>
-          </Tile>
-
-          {/* Distance breakdown */}
-          <Tile className="pt-4">
-            <div className="mb-3 flex items-center justify-between text-[0.65rem]">
-              <div className="flex items-center gap-2 text-slate-200/90">
-                <Activity className="h-3.5 w-3.5 text-cyan-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Distance breakdown
-                </span>
-              </div>
-              <div className="text-slate-300/80">
-                {metrics
-                  ? `${formatInt(metrics.totalDistanceMiles)} mi total`
-                  : '—'}
-              </div>
-            </div>
-            <div className="grid gap-3 text-xs md:grid-cols-4">
-              <div className="rounded-2xl bg-slate-950/70 px-4 py-3">
-                <div className="text-[0.60rem] uppercase tracking-[0.16em] text-slate-400">
-                  Running
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {metrics ? formatInt(metrics.runningMiles) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">mi</span>
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-950/70 px-4 py-3">
-                <div className="text-[0.60rem] uppercase tracking-[0.16em] text-slate-400">
-                  Cycling
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {metrics ? formatInt(metrics.cyclingMiles) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">mi</span>
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-950/70 px-4 py-3">
-                <div className="text-[0.60rem] uppercase tracking-[0.16em] text-slate-400">
-                  Swimming*
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {metrics ? formatOneDecimal(metrics.swimMiles) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">mi</span>
-                </div>
-                <div className="mt-1 text-[0.6rem] text-slate-400">
-                  *Meters converted to miles
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-950/70 px-4 py-3">
-                <div className="text-[0.60rem] uppercase tracking-[0.16em] text-slate-400">
-                  Walking / hiking
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {steps ? formatInt(steps.milesFromSteps) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">mi</span>
-                </div>
-                <div className="mt-1 text-[0.6rem] text-slate-400">
-                  Based on steps export
-                </div>
-              </div>
-            </div>
-          </Tile>
-
-          {/* Time by sport */}
-          <Tile
-            gradient="from-cyan-400/35 via-teal-500/20 to-sky-500/35"
-            className="pt-4"
-          >
-            <div className="mb-3 flex items-center justify-between text-[0.65rem]">
-              <div className="flex items-center gap-2 text-slate-200/90">
-                <BarChart3 className="h-3.5 w-3.5 text-teal-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Time by sport
-                </span>
-              </div>
-              <div className="text-slate-300/80">
-                {metrics
-                  ? `${formatInt(metrics.totalTrainingHours)} h total`
-                  : '—'}
-              </div>
-            </div>
-            <div className="grid gap-3 text-xs md:grid-cols-3">
-              {/* Running */}
-              <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.18em] text-cyan-200">
-                  <span>Running</span>
-                  <span className="text-slate-400">Distance • Time • Pace</span>
-                </div>
-                <div className="mt-2 flex items-baseline justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <div className="text-[0.6rem] text-slate-400">
-                      Distance
+                    <div className="text-4xl sm:text-5xl md:text-6xl font-semibold">
+                      {distanceStr}
                     </div>
-                    <div className="text-sm font-semibold">
-                      {metrics ? formatInt(metrics.running.distanceMiles) : '—'}{' '}
-                      <span className="text-xs font-normal text-slate-200">
-                        mi
-                      </span>
+                    <div className="text-md text-zinc-300 mt-2">
+                      That&apos;s{' '}
+                      <span className="font-semibold">{earthPercentStr}</span>{' '}
+                      of the way around Earth.
                     </div>
+                    {/* ENLARGED numbers + steps/day */}
+                    {step && totalStepsStr && (
+                      <div className="text-lg text-zinc-300 mt-1">
+                        <span className="font-semibold text-lg sm:text-xl">
+                          {totalStepsStr} steps
+                        </span>
+                        {avgStepsStr && (
+                          <>
+                            {' '}
+                            <span className="font-semibold text-lg sm:text-xl">
+                              {avgStepsStr}
+                            </span>
+                          </>
+                        )}
+                        .
+                      </div>
+                    )}
+                    {/* NEW: marathons / 5Ks line */}
+                    {marathonEqStr && fiveKEqStr && (
+                      <div className="text-md text-zinc-300 mt-1">
+                        That&apos;s about{' '}
+                        <span className="font-semibold">
+                          {marathonEqStr} marathons
+                        </span>{' '}
+                        or{' '}
+                        <span className="font-semibold">
+                          {fiveKEqStr} 5Ks
+                        </span>
+                        .
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <div className="text-[0.6rem] text-slate-400">Time</div>
-                    <div className="text-sm font-semibold">
-                      {metrics
-                        ? `${formatInt(metrics.running.hours)} h`
-                        : '—'}
+
+                  <div className="bg-black/40 rounded-2xl px-4 py-3 border border-white/10 flex flex-col gap-1 min-w-[9rem]">
+                    <div className="text-xs text-zinc-400 uppercase tracking-wide">
+                      Total time moving
                     </div>
-                    <div className="mt-1 text-[0.6rem] text-slate-400">
-                      {metrics ? metrics.running.paceLabel : '--'}
+                    <div className="text-lg font-semibold">{totalTimeStr}</div>
+                    <div className="text-xs text-zinc-500">
+                      Across {sessionsStr} sessions
                     </div>
                   </div>
                 </div>
-                {metrics?.running.bestTitle && (
-                  <div className="mt-3 border-t border-slate-800/90 pt-2 text-[0.6rem]">
-                    <div className="text-slate-400">Best effort</div>
-                    <div className="mt-0.5 text-[0.7rem] text-slate-100">
-                      {metrics.running.bestTitle}
-                    </div>
-                    <div className="mt-0.5 flex justify-between text-slate-300">
-                      <span>
-                        {metrics.running.bestDate &&
-                          formatDateShort(metrics.running.bestDate)}
-                      </span>
-                      <span>{metrics.running.bestStat}</span>
-                    </div>
+              </div>
+
+              {/* Quick stats column */}
+              <div className="flex flex-col gap-4">
+                <StatCard
+                  icon={LineChart}
+                  value={sessionsStr}
+                  label="Total sessions"
+                  helper="Every recording counts as one."
+                />
+                <StatCard
+                  icon={Layers}
+                  value={typesCountStr}
+                  label="Activity types"
+                  helper="Different sports you tracked this year."
+                />
+              </div>
+            </section>
+
+            {/* Performance + effort tiles */}
+            <section className="grid gap-5 md:grid-cols-3">
+              <StatCard
+                icon={HeartPulse}
+                value={maxHrStr}
+                label="Max heart rate"
+                helper="Your highest recorded BPM."
+              />
+              <StatCard
+                icon={HeartPulse}
+                value={avgHrStr}
+                label="Average heart rate"
+                helper="Average across all sessions with HR data."
+              />
+              <StatCard
+                icon={Flame}
+                value={caloriesStr}
+                label="Calories burned"
+                helper="Total estimated energy output."
+              />
+            </section>
+
+            {/* Averages + cadence */}
+            <section className="grid gap-5 md:grid-cols-3">
+              <StatCard
+                icon={Timer}
+                value={avgDurationStr}
+                label="Avg duration"
+                helper="Typical length of one session."
+              />
+              <StatCard
+                icon={Activity}
+                value={avgDistanceStr}
+                label="Avg distance"
+                helper="Average distance per recorded activity."
+              />
+              <StatCard
+                icon={CalendarDays}
+                value={mostActiveMonthStr || '--'}
+                label="Most active month"
+                helper="Where you stacked the most time."
+              />
+            </section>
+
+            {/* Sport-specific row: Running / Cycling / Swimming */}
+            <section className="grid gap-5 md:grid-cols-3">
+              {/* Running */}
+              <div className="bg-gradient-to-br from-red-600/40 via-orange-500/30 to-zinc-900/90 border border-red-400/50 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-2xl bg-black/40 flex items-center justify-center border border-white/10">
+                    <Activity className="w-5 h-5 text-red-200" />
                   </div>
-                )}
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-red-200">
+                      Running
+                    </p>
+                    <p className="text-xs text-zinc-300">
+                      Road, treadmill, and track
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Distance</span>
+                    <span className="font-semibold">{runDistanceStr}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Time</span>
+                    <span className="font-semibold">{runTimeStr}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Pace</span>
+                    <span className="font-semibold">{runPaceStr}</span>
+                  </div>
+                  {/* NEW: longest run */}
+                  {m?.runLongest && (
+                    <div className="flex justify-between items-start">
+                      <span className="text-zinc-400">Longest</span>
+                      <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
+                        <div className="font-semibold">{m.runLongest.title}</div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">
+                          {m.runLongest.distanceMi.toFixed(1)} mi
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Cycling */}
-              <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.18em] text-teal-200">
-                  <span>Cycling</span>
-                  <span className="text-slate-400">Distance • Time • Speed</span>
-                </div>
-                <div className="mt-2 flex items-baseline justify-between">
+              <div className="bg-gradient-to-br from-emerald-600/40 via-teal-500/30 to-zinc-900/90 border border-emerald-400/50 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-2xl bg-black/40 flex items-center justify-center border border-white/10">
+                    <Bike className="w-5 h-5 text-emerald-200" />
+                  </div>
                   <div>
-                    <div className="text-[0.6rem] text-slate-400">
-                      Distance
-                    </div>
-                    <div className="text-sm font-semibold">
-                      {metrics ? formatInt(metrics.cycling.distanceMiles) : '—'}{' '}
-                      <span className="text-xs font-normal text-slate-200">
-                        mi
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[0.6rem] text-slate-400">Time</div>
-                    <div className="text-sm font-semibold">
-                      {metrics
-                        ? `${formatInt(metrics.cycling.hours)} h`
-                        : '—'}
-                    </div>
-                    <div className="mt-1 text-[0.6rem] text-slate-400">
-                      {metrics ? metrics.cycling.paceLabel : '--'}
-                    </div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">
+                      Cycling
+                    </p>
+                    <p className="text-xs text-zinc-300">
+                      Road, indoor, and virtual
+                    </p>
                   </div>
                 </div>
-                {metrics?.cycling.bestTitle && (
-                  <div className="mt-3 border-t border-slate-800/90 pt-2 text-[0.6rem]">
-                    <div className="text-slate-400">Best effort</div>
-                    <div className="mt-0.5 text-[0.7rem] text-slate-100">
-                      {metrics.cycling.bestTitle}
-                    </div>
-                    <div className="mt-0.5 flex justify-between text-slate-300">
-                      <span>
-                        {metrics.cycling.bestDate &&
-                          formatDateShort(metrics.cycling.bestDate)}
-                      </span>
-                      <span>{metrics.cycling.bestStat}</span>
-                    </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Distance</span>
+                    <span className="font-semibold">{bikeDistanceStr}</span>
                   </div>
-                )}
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Time</span>
+                    <span className="font-semibold">{bikeTimeStr}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Avg speed</span>
+                    <span className="font-semibold">{bikeSpeedStr}</span>
+                  </div>
+                  {/* NEW: longest ride */}
+                  {m?.bikeLongest && (
+                    <div className="flex justify-between items-start">
+                      <span className="text-zinc-400">Longest</span>
+                      <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
+                        <div className="font-semibold">{m.bikeLongest.title}</div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">
+                          {m.bikeLongest.distanceMi.toFixed(1)} mi
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Swimming */}
-              <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                <div className="flex items-center justify-between text-[0.65rem] uppercase tracking-[0.18em] text-purple-200">
-                  <span>Swimming</span>
-                  <span className="text-slate-400">Distance • Time • Pace</span>
-                </div>
-                <div className="mt-2 flex items-baseline justify-between">
+              <div className="bg-gradient-to-br from-blue-500/40 via-cyan-500/30 to-zinc-900/90 border border-cyan-400/50 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-2xl bg-black/40 flex items-center justify-center border border-white/10">
+                    <Waves className="w-5 h-5 text-cyan-200" />
+                  </div>
                   <div>
-                    <div className="text-[0.6rem] text-slate-400">
-                      Distance
-                    </div>
-                    <div className="text-sm font-semibold">
-                      {metrics ? formatOneDecimal(metrics.swimming.distanceMiles) : '—'}{' '}
-                      <span className="text-xs font-normal text-slate-200">
-                        mi
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[0.6rem] text-slate-400">Time</div>
-                    <div className="text-sm font-semibold">
-                      {metrics
-                        ? `${formatOneDecimal(metrics.swimming.hours)} h`
-                        : '—'}
-                    </div>
-                    <div className="mt-1 text-[0.6rem] text-slate-400">
-                      {metrics ? metrics.swimming.paceLabel : '--'}
-                    </div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">
+                      Swimming
+                    </p>
+                    <p className="text-xs text-zinc-300">
+                      Pool and open water (meters)
+                    </p>
                   </div>
                 </div>
-                {metrics?.swimming.bestTitle && (
-                  <div className="mt-3 border-t border-slate-800/90 pt-2 text-[0.6rem]">
-                    <div className="text-slate-400">Best effort</div>
-                    <div className="mt-0.5 text-[0.7rem] text-slate-100">
-                      {metrics.swimming.bestTitle}
-                    </div>
-                    <div className="mt-0.5 flex justify-between text-slate-300">
-                      <span>
-                        {metrics.swimming.bestDate &&
-                          formatDateShort(metrics.swimming.bestDate)}
-                      </span>
-                      <span>{metrics.swimming.bestStat}</span>
-                    </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Distance</span>
+                    <span className="font-semibold">{swimDistanceStr}</span>
                   </div>
-                )}
-              </div>
-            </div>
-          </Tile>
-
-          {/* Vertical gains */}
-          <Tile
-            gradient="from-fuchsia-400/35 via-purple-500/25 to-amber-400/35"
-            className="pt-4"
-          >
-            <div className="mb-3 flex items-center justify-between text-[0.65rem]">
-              <div className="flex items-center gap-2 text-slate-200/90">
-                <Bolt className="h-3.5 w-3.5 text-fuchsia-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Vertical gains
-                </span>
-              </div>
-              <div className="text-slate-300/80 uppercase tracking-[0.18em]">
-                Elevation
-              </div>
-            </div>
-            <div className="grid gap-3 text-xs md:grid-cols-2">
-              <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                  Total elevation climbed
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {metrics ? formatInt(metrics.totalElevationFt) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">ft</span>
-                </div>
-                {metrics && (
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    Roughly {formatInt(metrics.totalElevationFt / 10)} floors
-                    climbed.
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Time</span>
+                    <span className="font-semibold">{swimTimeStr}</span>
                   </div>
-                )}
-              </div>
-              <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                  Highest point reached
-                </div>
-                <div className="mt-1 text-base font-semibold">
-                  {metrics ? formatInt(metrics.maxElevationFt) : '—'}{' '}
-                  <span className="text-xs font-normal text-slate-200">ft</span>
-                </div>
-                {metrics && (
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    That&apos;s about {(metrics.maxElevationFt / 5280).toFixed(1)} miles
-                    above sea level.
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Pace</span>
+                    <span className="font-semibold">{swimPaceStr}</span>
                   </div>
-                )}
-              </div>
-            </div>
-          </Tile>
-
-          {/* Biggest efforts + Consistency */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <Tile
-              gradient="from-emerald-400/30 via-sky-500/20 to-cyan-400/30"
-              className="pt-4"
-            >
-              <div className="mb-3 flex items-center gap-2 text-[0.65rem] text-slate-200/90">
-                <Flame className="h-3.5 w-3.5 text-emerald-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Biggest efforts
-                </span>
-              </div>
-              <div className="space-y-3 text-xs">
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Longest activity
-                  </div>
-                  {metrics?.efforts.longestTitle ? (
-                    <>
-                      <div className="mt-1 text-[0.8rem] font-semibold text-slate-100">
-                        {metrics.efforts.longestTitle}
+                  {/* NEW: longest swim */}
+                  {m?.swimLongest && (
+                    <div className="flex justify-between items-start">
+                      <span className="text-zinc-400">Longest</span>
+                      <div className="text-right max-w-[70%] whitespace-normal break-words leading-snug">
+                        <div className="font-semibold">{m.swimLongest.title}</div>
+                        <div className="font-semibold text-xs sm:text-sm opacity-90">
+                          {m.swimLongest.distanceM.toLocaleString()} m
+                        </div>
                       </div>
-                      <div className="mt-0.5 flex justify-between text-[0.7rem] text-slate-300">
-                        <span>
-                          {formatDateShort(metrics.efforts.longestDate)}
-                        </span>
-                        <span>
-                          {formatOneDecimal(metrics.efforts.longestHours)} h •{' '}
-                          {formatOneDecimal(
-                            metrics.efforts.longestDistanceMiles,
-                          )}{' '}
-                          mi
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="mt-1 text-[0.7rem] text-slate-400">
-                      Upload activities to see your marathon-level grinds.
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Most calories in one go
-                  </div>
-                  {metrics?.efforts.highestCalTitle ? (
-                    <>
-                      <div className="mt-1 text-[0.8rem] font-semibold text-slate-100">
-                        {metrics.efforts.highestCalTitle}
-                      </div>
-                      <div className="mt-0.5 flex justify-between text-[0.7rem] text-slate-300">
-                        <span>
-                          {formatDateShort(metrics.efforts.highestCalDate)}
-                        </span>
-                        <span>
-                          {formatOneDecimal(
-                            metrics.efforts.highestCalHours,
-                          )}{' '}
-                          h • {formatInt(metrics.efforts.highestCalories)} kcal
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="mt-1 text-[0.7rem] text-slate-400">
-                      Your biggest sweat-fest of the year shows up here.
                     </div>
                   )}
                 </div>
               </div>
-            </Tile>
+            </section>
 
-            <Tile
-              gradient="from-amber-400/35 via-orange-400/25 to-pink-500/35"
-              className="pt-4"
-            >
-              <div className="mb-3 flex items-center gap-2 text-[0.65rem] text-slate-200/90">
-                <Bolt className="h-3.5 w-3.5 text-amber-200" />
-                <span className="uppercase tracking-[0.18em]">
-                  Consistency &amp; grind
-                </span>
-              </div>
-              <div className="space-y-3 text-xs">
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Longest streak
+            {/* Big moments row */}
+            <section className="grid gap-5 md:grid-cols-2">
+              {longestActivity && (
+                <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-9 w-9 rounded-2xl bg-yellow-500/10 flex items-center justify-center border border-yellow-400/50">
+                      <Trophy className="w-5 h-5 text-yellow-300" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-yellow-300">
+                        Longest activity
+                      </p>
+                      <p className="text-sm text-zinc-300">
+                        {longestActivity.date || '--'}
+                      </p>
+                    </div>
                   </div>
-                  {metrics?.streak.longestStreakDays ? (
-                    <>
-                      <div className="mt-1 text-base font-semibold">
-                        {metrics.streak.longestStreakDays}{' '}
-                        <span className="text-xs font-normal text-slate-200">
-                          days
-                        </span>
-                      </div>
-                      <div className="mt-0.5 text-[0.7rem] text-slate-300">
-                        {formatDateRange(
-                          metrics.streak.longestStreakStart,
-                          metrics.streak.longestStreakEnd,
+                  <p className="text-lg sm:text-xl font-semibold mb-2">
+                    {longestActivity.title}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <p className="text-zinc-400 text-xs">Duration</p>
+                      <p className="text-zinc-100 font-medium">
+                        {formatDurationHMS(
+                          longestActivity.durationSeconds,
                         )}
-                      </div>
-                      <div className="mt-1 text-[0.6rem] text-slate-400">
-                        You refused to break the chain.
-                      </div>
-                    </>
-                  ) : (
-                    <div className="mt-1 text-[0.7rem] text-slate-400">
-                      Once you start stacking days, your longest streak will
-                      show here.
+                      </p>
                     </div>
+                    <div>
+                      <p className="text-zinc-400 text-xs">Calories</p>
+                      <p className="text-zinc-100 font-medium">
+                        {longestActivity.calories != null
+                          ? `${longestActivity.calories} kcal`
+                          : '--'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-400 text-xs">Type</p>
+                      <p className="text-zinc-100 font-medium">
+                        Long day out
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {highestCal && (
+                <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-9 w-9 rounded-2xl bg-orange-500/10 flex items-center justify-center border border-orange-400/50">
+                      <Flame className="w-5 h-5 text-orange-300" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-orange-300">
+                        Highest calorie burn
+                      </p>
+                      <p className="text-sm text-zinc-300">
+                        {highestCal.date || '--'}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-lg sm:text-xl font-semibold mb-2">
+                    {highestCal.title}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <p className="text-zinc-400 text-xs">Duration</p>
+                      <p className="text-zinc-100 font-medium">
+                        {highestCal.durationSeconds
+                          ? formatDurationHMS(
+                              highestCal.durationSeconds,
+                            )
+                          : '--'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-400 text-xs">Calories</p>
+                      <p className="text-zinc-100 font-medium">
+                        {highestCal.calories} kcal
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-400 text-xs">Effort</p>
+                      <p className="text-zinc-100 font-medium">
+                        Big day in the pain cave
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Streak + elevation */}
+            <section className="grid gap-5 md:grid-cols-2">
+              <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-400/60">
+                    <Zap className="w-5 h-5 text-amber-300" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-300">
+                      Consistency streak
+                    </p>
+                    {streakRange && (
+                      <p className="text-sm text-zinc-300">{streakRange}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="text-3xl sm:text-4xl font-semibold mb-2">
+                  {streakStr}
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Longest run of consecutive days with at least one activity.
+                </p>
+              </div>
+
+              <div className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-9 w-9 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-400/60">
+                    <Mountain className="w-5 h-5 text-emerald-300" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-300">
+                      Vertical gains
+                    </p>
+                    <p className="text-sm text-zinc-300">
+                      Total climbing and highest point
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-zinc-400 text-xs">Total ascent</p>
+                    <p className="text-lg font-semibold">{totalAscentStr}</p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-400 text-xs">Highest point</p>
+                    <p className="text-lg font-semibold">
+                      {maxElevationStr}
+                    </p>
+                  </div>
+                </div>
+                {/* NEW: Everests equivalence */}
+                {everestsStr && (
+                  <div className="text-lg text-zinc-400 mt-2">
+                    ≈ <span className="font-semibold text-zinc-200">{everestsStr}</span>{' '}
+                    Mount Everests
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* By activity type (top 3) */}
+            {topTypes.length > 0 && (
+              <section className="bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-400/50">
+                      <Dumbbell className="w-5 h-5 text-blue-300" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-blue-300">
+                        By activity type
+                      </p>
+                      <p className="text-sm text-zinc-300">
+                        Your top sports by session count
+                      </p>
+                    </div>
+                  </div>
+                  {favActivityStr && (
+                    <p className="text-xs text-zinc-400 text-right max-w-[10rem]">
+                      Favorite: {favActivityStr}
+                    </p>
                   )}
                 </div>
 
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Busiest week
-                  </div>
-                  {metrics?.streak.busiestWeekHours ? (
-                    <>
-                      <div className="mt-1 text-[0.8rem] font-semibold text-slate-100">
-                        {formatDateRange(
-                          metrics.streak.busiestWeekStart,
-                          metrics.streak.busiestWeekEnd,
-                        )}
+                <div className="grid gap-4 md:grid-cols-3">
+                  {topTypes.map((t) => (
+                    <div
+                      key={t.name}
+                      className="bg-black/40 border border-zinc-700 rounded-2xl p-4 flex flex-col gap-2"
+                    >
+                      <div className="text-sm font-semibold truncate">
+                        {t.name}
                       </div>
-                      <div className="mt-0.5 text-[0.7rem] text-slate-300">
-                        {formatOneDecimal(metrics.streak.busiestWeekHours)} h •{' '}
-                        {metrics.streak.busiestWeekActivities} activities
+                      <div className="text-xs text-zinc-400">
+                        {t.count} session{t.count !== 1 ? 's' : ''}
                       </div>
-                    </>
-                  ) : (
-                    <div className="mt-1 text-[0.7rem] text-slate-400">
-                      When you have a week that feels like a training camp,
-                      it&apos;ll land here.
+                      <div className="text-sm text-zinc-100">
+                        {t.totalDistanceMi.toFixed(1)} mi ·{' '}
+                        {formatDurationHMS(t.totalSeconds)}
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-              </div>
-            </Tile>
+              </section>
+            )}
           </div>
+        )}
 
-          {/* Steps wrapped */}
-          <Tile
-            gradient="from-teal-400/35 via-cyan-500/25 to-blue-500/35"
-            className="pt-4"
-          >
-            <div className="mb-3 flex items-center justify-between text-[0.65rem]">
-              <div className="flex items-center gap-2 text-slate-200/90">
-                <Footprints className="h-3.5 w-3.5 text-emerald-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Steps wrapped
-                </span>
-              </div>
-              {steps && (
-                <div className="text-slate-300/80 text-[0.6rem]">
-                  Across {steps.weeks} weeks of data
+        {/* Sleep Wrapped section (independent of activities) */}
+        {sleepMetrics && (
+          <section className="mt-8 bg-zinc-900/80 border border-zinc-700/70 rounded-3xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-400/50">
+                  <HeartPulse className="w-5 h-5 text-indigo-200" />
                 </div>
-              )}
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-indigo-200">
+                    Sleep Wrapped
+                  </p>
+                  <p className="text-sm text-zinc-300">
+                    {sleepMetrics.weeks} weeks of tracked sleep
+                  </p>
+                </div>
+              </div>
             </div>
-            {steps ? (
-              <div className="grid gap-3 text-xs md:grid-cols-4">
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Total steps
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {formatInt(steps.totalSteps)}
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    Across {steps.weeks} weeks
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Avg per day
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {formatInt(steps.avgPerDay)}
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    ~{formatInt(steps.milesFromSteps)} mi on foot
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Best week
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {formatInt(steps.bestWeekSteps)}
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    {steps.bestWeekLabel || 'Week of max hustle'}
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Distance from steps
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {formatInt(steps.milesFromSteps)}{' '}
-                    <span className="text-xs font-normal text-slate-200">
-                      mi
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    Based on ~1,842 steps / mile
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-[0.7rem] text-slate-300">
-                Upload a Steps CSV to see how far your everyday walking really
-                took you.
-              </div>
-            )}
-          </Tile>
 
-          {/* Sleep wrapped */}
-          <Tile
-            gradient="from-indigo-400/35 via-violet-500/25 to-fuchsia-500/35"
-            className="pt-4"
-          >
-            <div className="mb-3 flex items-center justify-between text-[0.65rem]">
-              <div className="flex items-center gap-2 text-slate-200/90">
-                <Moon className="h-3.5 w-3.5 text-indigo-300" />
-                <span className="uppercase tracking-[0.18em]">
-                  Sleep wrapped
-                </span>
-              </div>
-              {sleep && (
-                <div className="text-[0.6rem] text-slate-300/80">
-                  Recovery mode • {sleep.weeks} weeks logged
-                </div>
-              )}
-            </div>
-            {sleep ? (
-              <div className="grid gap-3 text-xs md:grid-cols-4">
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Weeks of data
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {sleep.weeks}
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    That&apos;s most of the year tracked.
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Avg sleep / night
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {sleep.avgHours.toFixed(1)}{' '}
-                    <span className="text-xs font-normal text-slate-200">
-                      h
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    Total {formatInt(sleep.avgHours * sleep.weeks * 7)} h tracked
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Avg sleep score
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {Math.round(sleep.avgScore)}
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    Out of 100 • more green than red.
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-950/75 px-4 py-3">
-                  <div className="text-[0.6rem] uppercase tracking-[0.16em] text-slate-400">
-                    Longest-sleep week
-                  </div>
-                  <div className="mt-1 text-base font-semibold">
-                    {sleep.bestHours.toFixed(1)}{' '}
-                    <span className="text-xs font-normal text-slate-200">
-                      h
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[0.6rem] text-slate-400">
-                    {sleep.bestWeekLabel || 'Your chillest week of the year.'}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-[0.7rem] text-slate-300">
-                Upload a Sleep CSV to see how your recovery stacked up against
-                all that training.
-              </div>
-            )}
-          </Tile>
-
-          {/* Closing */}
-          <Tile
-            gradient="from-emerald-400/25 via-cyan-400/25 to-purple-500/25"
-            className="py-4"
-          >
-            <div className="flex items-center justify-between text-[0.7rem] text-slate-100">
+            <div className="grid gap-4 md:grid-cols-3 text-sm">
               <div>
-                <div className="text-[0.6rem] uppercase tracking-[0.18em] text-emerald-200">
-                  {year} wrapped up
-                </div>
-                <div className="mt-1 text-[0.8rem]">
-                  In {year + 1}, the only goal: make Future You impressed.
-                </div>
+                <p className="text-zinc-400 text-xs">Average sleep score</p>
+                <p className="text-2xl font-semibold">
+                  {avgSleepScoreStr}
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Roughly a solid{' '}
+                  <span className="font-semibold">{sleepGrade}</span>.
+                </p>
               </div>
-              <div className="hidden text-[0.6rem] text-slate-300 sm:block">
-                See you next year, coach.
+
+              <div>
+                <p className="text-zinc-400 text-xs">
+                  Average nightly duration
+                </p>
+                <p className="text-2xl font-semibold">
+                  {avgSleepDurationStr}
+                </p>
               </div>
+
+              {sleepMetrics.bestScoreWeek && (
+                <div>
+                  <p className="text-zinc-400 text-xs">Best week</p>
+                  <p className="text-sm text-zinc-100 font-semibold">
+                    {sleepMetrics.bestScoreWeek.label}
+                  </p>
+                  <p className="text-sm text-zinc-300">
+                    Score {sleepMetrics.bestScoreWeek.score} ·{' '}
+                    {(() => {
+                      const mins =
+                        sleepMetrics.bestScoreWeek!.durationMinutes;
+                      const h = Math.floor(mins / 60);
+                      const mR = Math.round(mins % 60);
+                      return `${h}h ${mR}m avg`;
+                    })()}
+                  </p>
+                </div>
+              )}
             </div>
-          </Tile>
-        </div>
-      </div>
+
+            {sleepMetrics.worstScoreWeek && (
+              <div className="mt-4 text-xs text-zinc-400">
+                Toughest week:{' '}
+                <span className="text-zinc-200">
+                  {sleepMetrics.worstScoreWeek.label}
+                </span>{' '}
+                (score {sleepMetrics.worstScoreWeek.score}).
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Footer */}
+        <footer className="mt-10 text-xs text-zinc-500">
+          <p>© 2025 Jordan Lindsay. Not affiliated with Garmin Ltd.</p>
+        </footer>
+      </main>
     </div>
   );
 }
