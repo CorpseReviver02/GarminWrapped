@@ -377,8 +377,8 @@ function computeMetrics(rows: any[]): Metrics {
     if (date) {
       const dow = date.getDay(); // 0=Sun..6=Sat
       // non-null assertion is fine with noUncheckedIndexedAccess
-        weekdayAgg[dow]!.seconds += timeSeconds;
-        weekdayAgg[dow]!.count += 1;
+      weekdayAgg[dow]!.seconds += timeSeconds; // reuse instead of re-parsing
+      weekdayAgg[dow]!.count += 1;
     }
 
     if (calories > 0) {
