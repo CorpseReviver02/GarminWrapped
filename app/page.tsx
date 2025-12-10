@@ -125,12 +125,6 @@ function hasDurationSeconds(
   return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
 }
 
-
-/** why: Vercel/TS sometimes loses control-flow narrowing with unions */
-function isLongestActivityDetail(x: unknown): x is LongestActivityDetail {
-  return !!x && typeof (x as { durationSeconds?: unknown }).durationSeconds === 'number';
-}
-
 const EARTH_CIRCUMFERENCE_MI = 24901;
 const MARATHON_MI = 26.2188;
 const FIVEK_MI = 3.10686;
