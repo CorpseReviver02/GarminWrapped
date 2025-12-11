@@ -1,36 +1,70 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+# Garmin Wrapped
+
+Garmin Wrapped is a small Next.js app that turns your yearly Garmin data into a clean, shareable “year in review” dashboard.  
+
+It uses CSV exports from Garmin Connect for:
+
+- **Activities** (required)
+- **Steps** (optional)
+- **Sleep** (optional)
+
+You can switch between **Imperial** and **Metric** units, explore your stats, and download the whole page as an image.
+
+---
+
+## Features
+
+- **Activity summary**
+  - Total distance, total time, number of sessions
+  - Favorite activity type and most active month
+  - Longest activity and highest-calorie activity
+  - Per-sport breakdown: Running, Cycling, Swimming (with pace/speed)
+  - Consistency streak and “grind day” (busiest weekday)
+  - Elevation stats: total ascent and highest point
+
+- **Sleep Wrapped** (optional)
+  - Average sleep score
+  - Average nightly duration
+  - Best week of sleep
+  - Worst week of sleep
+
+- **Steps Wrapped** (optional)
+  - Total steps and average steps per day
+  - Best week of steps
+  - Rough equivalence in marathons / 5Ks
+
+- **Unit-aware**
+  - Choose **Imperial (mi/ft)** or **Metric (km/m)**
+  - Data is normalized internally and displayed in the units you select
+
+- **Shareable output**
+  - Download the entire page as a PNG image to share or save
+
+---
+
+## Tech Stack
+
+- [Next.js 16](https://nextjs.org/)
+- [React 19](https://react.dev/)
+- [Tailwind CSS 4](https://tailwindcss.com/) (utility classes)
+- [Papaparse](https://www.papaparse.com/) for CSV parsing
+- [html-to-image](https://github.com/bubkoo/html-to-image) for PNG export
+- [lucide-react](https://lucide.dev/) for icons
+
+---
+
 ## Getting Started
 
-First, run the development server:
+### Requirements
+
+- **Node.js** 18+ (recommended)
+- **npm** 8+ (or a compatible version)
+
+### Install dependencies
+
+From the project root:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+npm install
