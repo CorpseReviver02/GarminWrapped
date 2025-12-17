@@ -1,9 +1,10 @@
-// File: app/page.tsx v4.6.6 - dynamic copy + export instructions
+// File: app/page.tsx v4.6.7 - papaparse types compat + dynamic copy + export instructions
 
 'use client';
 
 import React, { useRef, useState } from 'react';
-import Papa, { ParseResult, LocalFile, ParseConfig } from 'papaparse';
+import Papa from 'papaparse';
+import type { ParseResult } from 'papaparse';
 import * as htmlToImage from 'html-to-image';
 import {
   Activity, Flame, HeartPulse, LineChart, Mountain, Timer,
@@ -883,7 +884,21 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
 type RawRow = unknown[];
 type Raw2D = RawRow[];
 
-const PAPA_ROWS_CONFIG: Partial<ParseConfig<RawRow>> = {
+// Minimal Papa Parse config type (avoids BaseConfig/ParseConfig typing differences across papaparse versions)
+type PapaConfig<T> = {
+  header?: boolean;
+  dynamicTyping?: boolean | Record<string, boolean>;
+  skipEmptyLines?: boolean | 'greedy';
+  worker?: boolean;
+  transformHeader?: (header: string, index: number) => string;
+  step?: (results: ParseResult<T>, parser: any) => void;
+  complete?: (results: ParseResult<T>) => void;
+  error?: (error: any) => void;
+  [key: string]: any;
+};
+
+
+const PAPA_ROWS_CONFIG: PapaConfig<RawRow> = {
   header: false,
   skipEmptyLines: true,
 };
@@ -891,7 +906,7 @@ const PAPA_ROWS_CONFIG: Partial<ParseConfig<RawRow>> = {
 /** Promise-based wrapper around Papa.parse (local File/Blob only). */
 function parseCsvFile<T = RawRow>(
   file: File | Blob,
-  config?: Partial<ParseConfig<T>>
+  config?: PapaConfig<T>
 ): Promise<ParseResult<T>> {
   return new Promise<ParseResult<T>>((resolve, reject) => {
     // Build a config object that is correctly typed to the row shape `T`.
@@ -902,9 +917,9 @@ function parseCsvFile<T = RawRow>(
       ...(config ?? {}),
       complete: (results: ParseResult<T>) => resolve(results),
       error: (err: unknown) => reject(err),
-    } as ParseConfig<T>;
+    } as PapaConfig<T>;
 
-    Papa.parse<T>(file as LocalFile, cfg);
+    Papa.parse<T>(file as any, cfg as any);
   });
 }
 
