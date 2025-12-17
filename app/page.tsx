@@ -1,4 +1,4 @@
-// File: app/page.tsx v4.6.7 - papaparse types compat + dynamic copy + export instructions
+// File: app/page.tsx v4.6.8 - no-explicit-any lint fix (papaparse compat) + dynamic copy + export instructions
 
 'use client';
 
@@ -891,10 +891,10 @@ type PapaConfig<T> = {
   skipEmptyLines?: boolean | 'greedy';
   worker?: boolean;
   transformHeader?: (header: string, index: number) => string;
-  step?: (results: ParseResult<T>, parser: any) => void;
+  step?: (results: ParseResult<T>, parser: unknown) => void;
   complete?: (results: ParseResult<T>) => void;
-  error?: (error: any) => void;
-  [key: string]: any;
+  error?: (error: unknown) => void;
+  [key: string]: unknown;
 };
 
 
@@ -919,7 +919,8 @@ function parseCsvFile<T = RawRow>(
       error: (err: unknown) => reject(err),
     } as PapaConfig<T>;
 
-    Papa.parse<T>(file as any, cfg as any);
+    const papaParse = Papa.parse as unknown as <U>(input: File | Blob, config: PapaConfig<U>) => void;
+    papaParse<T>(file, cfg);
   });
 }
 
