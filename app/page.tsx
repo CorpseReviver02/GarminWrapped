@@ -3,7 +3,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import Papa, { ParseResult, LocalFile, BaseConfig } from 'papaparse';
+import Papa, { ParseResult, LocalFile, ParseConfig } from 'papaparse';
 import * as htmlToImage from 'html-to-image';
 import {
   Activity, Flame, HeartPulse, LineChart, Mountain, Timer,
@@ -883,7 +883,7 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
 type RawRow = unknown[];
 type Raw2D = RawRow[];
 
-const PAPA_ROWS_CONFIG: Partial<BaseConfig<RawRow>> = {
+const PAPA_ROWS_CONFIG: Partial<ParseConfig<RawRow>> = {
   header: false,
   skipEmptyLines: true,
 };
@@ -891,7 +891,7 @@ const PAPA_ROWS_CONFIG: Partial<BaseConfig<RawRow>> = {
 /** Promise-based wrapper around Papa.parse (local File/Blob only). */
 function parseCsvFile<T = RawRow>(
   file: File | Blob,
-  config?: Partial<BaseConfig<T>>
+  config?: Partial<ParseConfig<T>>
 ): Promise<ParseResult<T>> {
   return new Promise<ParseResult<T>>((resolve, reject) => {
     // Build a config object that is correctly typed to the row shape `T`.
@@ -902,7 +902,7 @@ function parseCsvFile<T = RawRow>(
       ...(config ?? {}),
       complete: (results: ParseResult<T>) => resolve(results),
       error: (err: unknown) => reject(err),
-    } as BaseConfig<T>;
+    } as ParseConfig<T>;
 
     Papa.parse<T>(file as LocalFile, cfg);
   });
