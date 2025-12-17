@@ -1,11 +1,9 @@
-// File: app/page.tsx v4.5.2 - final
-// Promise-based CSV parsing + safer guards
-// Fixes: per-row unit auto-detect, elevation fix, sleep avg fix, marathons/5Ks line, radio unit toggle.
+// File: app/page.tsx v4.6.6 - dynamic copy + export instructions
 
 'use client';
 
 import React, { useRef, useState } from 'react';
-import Papa, { ParseResult, LocalFile, ParseConfig } from 'papaparse';
+import Papa, { ParseResult, LocalFile, BaseConfig } from 'papaparse';
 import * as htmlToImage from 'html-to-image';
 import {
   Activity, Flame, HeartPulse, LineChart, Mountain, Timer,
@@ -92,6 +90,88 @@ const FEET_PER_STEP = 2.3;
 
 function toStringSafe(v: unknown): string { return String(v ?? '').trim(); }
 function asCell(v: unknown): CsvPrimitive { const s = toStringSafe(v); return s.length ? s : null; }
+
+function isTextual(v: unknown): v is string {
+  const s = toStringSafe(v);
+  if (!s) return false;
+  // Treat cells with any non-numeric characters as text labels (e.g., 'Dec 5-11')
+  return !/^[\d\s,\.\-]+$/.test(s);
+}
+
+/* ======================== Dynamic copy (stable per user) ======================== */
+
+function hashToUint32(s: string): number {
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function pickStable(seed: string, options: string[]): string {
+  if (!options.length) return '';
+  const idx = hashToUint32(seed) % options.length;
+  return options[idx]!;
+}
+
+type LongestActivityOut = NonNullable<Metrics['longestActivity']>;
+type HighestCalorieOut = NonNullable<Metrics['highestCalorie']>;
+
+const LONGEST_TYPE_SHORT = [
+  'Long day out',
+  'Solid session',
+  'Time-on-feet',
+  'Steady grind',
+  'Mileage mission',
+  'Clocked in',
+];
+
+const LONGEST_TYPE_EPIC = [
+  'All-day adventure',
+  'Endurance flex',
+  'The main event',
+  'Epic session',
+  'The long-haul special',
+  'A proper mission',
+  'Duration destroyer',
+  'You were out there',
+];
+
+const EFFORT_LIGHT = [
+  'Cruise control',
+  'Comfortably hard',
+  'Good work',
+  'Steady burn',
+  'Smooth operator',
+];
+
+const EFFORT_HEAVY = [
+  'Big day in the pain cave',
+  'Full-send effort',
+  'Calorie furnace mode',
+  'Gas tank emptied',
+  'Brutal (in the best way)',
+  'You cooked today',
+  'No chill, all thrill',
+  'Suffering, but make it stats',
+];
+
+function getLongestTypeLabel(l: LongestActivityOut): string {
+  const hours = (l.durationSeconds || 0) / 3600;
+  const pool = hours >= 4 ? LONGEST_TYPE_EPIC : LONGEST_TYPE_SHORT;
+  const seed = `longest|${l.title}|${l.date}|${Math.round((l.durationSeconds || 0) / 60)}`;
+  return pickStable(seed, pool);
+}
+
+function getHighestEffortLabel(h: HighestCalorieOut): string {
+  const cal = h.calories || 0;
+  const pool = cal >= 1200 ? EFFORT_HEAVY : EFFORT_LIGHT;
+  const seed = `calories|${h.title}|${h.date}|${cal}`;
+  return pickStable(seed, pool);
+}
+
 function normalizeKey(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -599,15 +679,18 @@ const KNOWN_SLEEP_SCHEMAS: SleepSchema[] = [
   { name: 'sleep-weekly-4', columns: 4, idx: { label: 0, score: 1, duration: 2 } },
   // Fix: this export’s score is at col 1 (not 2); duration at 3
   { name: 'sleep-weekly-6', columns: 6, idx: { label: 0, score: 1, duration: 3 } },
+  { name: 'sleep-weekly-7', columns: 7, idx: { label: 0, score: 1, duration: 3 } },
 ];
 function isDurationLike(v: unknown): boolean {
   const s = toStringSafe(v);
   return /^(\d{1,2}):\d{2}$/.test(s) || /h/i.test(s) || /\bmin\b/i.test(s);
 }
-function isScoreLike(v: unknown): boolean { const n = parseNumber(v); return n >= 1 && n <= 100; }
-function isTextual(v: unknown): boolean {
-  const s = toStringSafe(v);
-  return !!s && (/[A-Za-z]/.test(s) || /week|sem|Mon|Tue|Wed|Thu|Fri|Sat|Sun|Lun|Mar|Mer|Jeu|Ven|Sam|Dim| - /.test(s));
+function isScoreLike(v: unknown): boolean {
+  // Strict numeric-cell check (prevents parsing "27-Dec" as 27, or "2024 - Jan 2" as 2)
+  const s = toStringSafe(v).replace(/\u00A0/g, ' ').trim();
+  if (!/^\d{1,3}$/.test(s)) return false;
+  const n = parseInt(s, 10);
+  return n >= 1 && n <= 100;
 }
 
 function mapSleepRowsByIndex(rows2D: unknown[][]): CsvRow[] {
@@ -615,46 +698,57 @@ function mapSleepRowsByIndex(rows2D: unknown[][]): CsvRow[] {
   const header = rows2D[0] as unknown[];
   const rows = rows2D.slice(1) as unknown[][];
 
+  // Fast-path: if all rows are uniform, we can use known fixed indices.
+  const uniform = rows.every(r => Array.isArray(r) && r.length === header.length);
   const known = KNOWN_SLEEP_SCHEMAS.find(s => s.columns === header.length);
-  if (known) {
+  if (uniform && known) {
     return rows.map(r => ({
-      'Date':        asCell(r[known.idx.label]),
-      'Avg Score':   asCell(r[known.idx.score]),
-      'Avg Duration':asCell(r[known.idx.duration]),
+      'Date':         asCell(r[known.idx.label]),
+      'Avg Score':    asCell(r[known.idx.score]),
+      'Avg Duration': asCell(r[known.idx.duration]),
     }));
   }
 
-  // Heuristic fallback when schema unknown
-  const sample = rows.slice(0, Math.min(10, rows.length));
-  const colCount = header.length;
+  // Robust-path: some Garmin exports "split" the Date/week label into extra year columns
+  // (e.g., weeks spanning Dec→Jan). In that case, the score/duration columns shift per-row.
+  return rows
+    .map((r) => {
+      if (!Array.isArray(r) || r.length === 0) return null;
 
-  let scoreCol = -1, scoreHits = -1;
-  for (let c = 0; c < colCount; c++) {
-    let hits = 0; for (const r of sample) if (isScoreLike(r[c])) hits++;
-    if (hits > scoreHits) { scoreHits = hits; scoreCol = c; }
-  }
+      // Score = first 1..100 number in the row
+      let scoreIdx = -1;
+      for (let i = 0; i < r.length; i++) {
+        if (isScoreLike(r[i])) { scoreIdx = i; break; }
+      }
+      if (scoreIdx === -1) return null;
 
-  let durationCol = -1, durationHits = -1;
-  for (let c = 0; c < colCount; c++) {
-    let hits = 0; for (const r of sample) if (isDurationLike(r[c])) hits++;
-    if (hits > durationHits) { durationHits = hits; durationCol = c; }
-  }
+      // Duration = first duration-like cell AFTER the score (avoids Avg Sleep Need if present)
+      let durationIdx = -1;
+      for (let i = scoreIdx + 1; i < r.length; i++) {
+        if (isDurationLike(r[i])) { durationIdx = i; break; }
+      }
 
-  let labelCol = -1;
-  for (let c = 0; c < colCount; c++) {
-    if (c === scoreCol || c === durationCol) continue;
-    const s0 = sample[0]?.[c]; if (isTextual(s0)) { labelCol = c; break; }
-  }
-  if (labelCol === -1) labelCol = 0;
+      // Label = everything before score (drop standalone year columns like "2024")
+      const label = r
+        .slice(0, scoreIdx)
+        .map(toStringSafe)
+        .map(s => s.replace(/\u00A0/g, ' ').trim())
+        .filter(Boolean)
+        .filter(s => !/^\d{4}$/.test(s))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-  return rows.map(r => ({
-    'Date':        asCell(r[labelCol]),
-    'Avg Score':   asCell(r[scoreCol]),
-    'Avg Duration':asCell(r[durationCol]),
-  }));
+      return {
+        'Date':         asCell(label),
+        'Avg Score':    asCell(r[scoreIdx]),
+        'Avg Duration': asCell(durationIdx !== -1 ? r[durationIdx] : null),
+      } as CsvRow;
+    })
+    .filter((x): x is CsvRow => !!x);
 }
 
-/* ----------------------- Steps (headerless + heuristics) ----------------------- */
+ /* ----------------------- Steps (headerless + heuristics) ----------------------- */
 type StepsSchema = { name: string; columns: number; idx: { label: number; steps: number; days?: number } };
 const KNOWN_STEPS_SCHEMAS: StepsSchema[] = [
   { name: 'steps-weekly-3',  columns: 3, idx: { label: 0, steps: 1, days: 2 } },
@@ -711,7 +805,11 @@ function mapStepsRowsByIndex(rows2D: unknown[][]): CsvRow[] {
 /* ============================== Sleep & Steps metrics ============================== */
 
 function computeSleepMetrics(rows: CsvRow[]): SleepMetrics {
-  let totalScore = 0, totalDurationMinutes = 0, count = 0;
+  // Keep score + duration averages resilient to any row-level parsing oddities.
+  // (e.g., year-spanning rows where the "Date" cell is split into extra columns)
+  let scoreSum = 0, scoreCount = 0;
+  let durationSum = 0, durationCount = 0;
+
   let bestScoreWeek: SleepMetrics['bestScoreWeek'] = null;
   let worstScoreWeek: SleepMetrics['worstScoreWeek'] = null;
   let longestSleepWeek: SleepMetrics['longestSleepWeek'] = null;
@@ -720,23 +818,34 @@ function computeSleepMetrics(rows: CsvRow[]): SleepMetrics {
     const score = parseNumber(row['Avg Score']);
     const label = toStringSafe(row['Date'] ?? row['Label'] ?? '');
     const durationMinutes = parseSleepDurationToMinutes(row['Avg Duration']);
-    if (!score && !durationMinutes && !label) return;
 
-    totalScore += score;
-    totalDurationMinutes += durationMinutes;
-    count += 1;
+    const hasScore = score > 0 && score <= 100;
+    const hasDuration = durationMinutes > 0;
 
-    if (!bestScoreWeek || score > bestScoreWeek.score) bestScoreWeek = { label, score, durationMinutes };
-    if (!worstScoreWeek || score < worstScoreWeek.score) worstScoreWeek = { label, score, durationMinutes };
-    if (!longestSleepWeek || durationMinutes > longestSleepWeek.durationMinutes) {
-      longestSleepWeek = { label, durationMinutes, score };
+    if (!label || (!hasScore && !hasDuration)) return;
+
+    if (hasScore) {
+      scoreSum += score;
+      scoreCount += 1;
+
+      if (!bestScoreWeek || score > bestScoreWeek.score) bestScoreWeek = { label, score, durationMinutes };
+      if (!worstScoreWeek || score < worstScoreWeek.score) worstScoreWeek = { label, score, durationMinutes };
+    }
+
+    if (hasDuration) {
+      durationSum += durationMinutes;
+      durationCount += 1;
+
+      if (!longestSleepWeek || durationMinutes > longestSleepWeek.durationMinutes) {
+        longestSleepWeek = { label, durationMinutes, score };
+      }
     }
   });
 
   return {
-    weeks: count,
-    avgScore: count ? totalScore / count : 0,
-    avgDurationMinutes: count ? totalDurationMinutes / count : 0,
+    weeks: durationCount || scoreCount,
+    avgScore: scoreCount ? scoreSum / scoreCount : 0,
+    avgDurationMinutes: durationCount ? durationSum / durationCount : 0,
     bestScoreWeek,
     worstScoreWeek,
     longestSleepWeek,
@@ -774,7 +883,7 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
 type RawRow = unknown[];
 type Raw2D = RawRow[];
 
-const PAPA_ROWS_CONFIG: Partial<ParseConfig<RawRow>> = {
+const PAPA_ROWS_CONFIG: Partial<BaseConfig<RawRow>> = {
   header: false,
   skipEmptyLines: true,
 };
@@ -782,24 +891,23 @@ const PAPA_ROWS_CONFIG: Partial<ParseConfig<RawRow>> = {
 /** Promise-based wrapper around Papa.parse (local File/Blob only). */
 function parseCsvFile<T = RawRow>(
   file: File | Blob,
-  config?: Partial<ParseConfig<T>>
+  config?: Partial<BaseConfig<T>>
 ): Promise<ParseResult<T>> {
   return new Promise<ParseResult<T>>((resolve, reject) => {
-    Papa.parse<T>(file as LocalFile, {
-      header: false,
+    // Build a config object that is correctly typed to the row shape `T`.
+    // This avoids generic mismatches when callers pass configs typed for CsvRow vs RawRow.
+    const cfg = {
+      // sensible defaults (caller can override)
       skipEmptyLines: true,
       ...(config ?? {}),
-      complete: (results) => {
-        // Just resolve; we don't need to forward to a user callback
-        resolve(results);
-      },
-      error: (error) => {
-        // Reject on any parse error
-        reject(error);
-      },
-    });
+      complete: (results: ParseResult<T>) => resolve(results),
+      error: (err: unknown) => reject(err),
+    } as BaseConfig<T>;
+
+    Papa.parse<T>(file as LocalFile, cfg);
   });
 }
+
 
 /* =================================== UI =================================== */
 
@@ -1069,6 +1177,10 @@ export default function Home() {
     : 'Units: —';
 
   const topTypes: ActivityTypeSummary[] = m?.topActivityTypes ?? [];
+
+  const longestTypeStr = m?.longestActivity ? getLongestTypeLabel(m.longestActivity) : 'Long day out';
+  const highestEffortStr = m?.highestCalorie ? getHighestEffortLabel(m.highestCalorie) : 'Big day in the pain cave';
+
 
   return (
       <div
@@ -1367,7 +1479,7 @@ export default function Home() {
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div><p className="text-zinc-400 text-xs">Duration</p><p className="text-zinc-100 font-medium">{formatDurationHMS(m.longestActivity.durationSeconds)}</p></div>
                     <div><p className="text-zinc-400 text-xs">Calories</p><p className="text-zinc-100 font-medium">{m.longestActivity.calories != null ? `${m.longestActivity.calories} kcal` : '--'}</p></div>
-                    <div><p className="text-zinc-400 text-xs">Type</p><p className="text-zinc-100 font-medium">Long day out</p></div>
+                    <div><p className="text-zinc-400 text-xs">Type</p><p className="text-zinc-100 font-medium">{longestTypeStr}</p></div>
                   </div>
                 </div>
               )}
@@ -1386,7 +1498,7 @@ export default function Home() {
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div><p className="text-zinc-400 text-xs">Duration</p><p className="text-zinc-100 font-medium">{m.highestCalorie.durationSeconds ? formatDurationHMS(m.highestCalorie.durationSeconds) : '--'}</p></div>
                     <div><p className="text-zinc-400 text-xs">Calories</p><p className="text-zinc-100 font-medium">{m.highestCalorie.calories} kcal</p></div>
-                    <div><p className="text-zinc-400 text-xs">Effort</p><p className="text-zinc-100 font-medium">Big day in the pain cave</p></div>
+                    <div><p className="text-zinc-400 text-xs">Effort</p><p className="text-zinc-100 font-medium">{highestEffortStr}</p></div>
                   </div>
                 </div>
               )}
@@ -1562,6 +1674,46 @@ export default function Home() {
     </div>
   </section>
 )}
+
+                {/* How to export (Garmin Connect) */}
+        <div className="mt-3 text-xs text-zinc-500 leading-relaxed">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1">How to export CSVs</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              <a
+                className="text-zinc-300 underline hover:text-white"
+                href="https://connect.garmin.com/modern/activities"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Activities
+              </a>
+              : scroll to the last activity you want → <span className="text-zinc-300">Export CSV</span>.
+            </li>
+            <li>
+              <a
+                className="text-zinc-300 underline hover:text-white"
+                href="https://connect.garmin.com/modern/report/29/wellness/last_year"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Steps
+              </a>
+              : set to <span className="text-zinc-300">1 Year</span> → <span className="text-zinc-300">Export</span>.
+            </li>
+            <li>
+              <a
+                className="text-zinc-300 underline hover:text-white"
+                href="https://connect.garmin.com/modern/sleep"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Sleep
+              </a>
+              : set to <span className="text-zinc-300">1 Year</span> → three dots → <span className="text-zinc-300">Export CSV</span>.
+            </li>
+          </ul>
+        </div>
 
         <footer className="mt-10 text-xs text-zinc-500">
           <p>© 2025 Jordan Lindsay. Not affiliated with Garmin Ltd.</p>
