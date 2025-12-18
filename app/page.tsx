@@ -1,4 +1,4 @@
-// File: app/page.tsx v4.6.8 - no-explicit-any lint fix (papaparse compat) + dynamic copy + export instructions
+// File: app/page.tsx v5.0.4 - Instagram Carousel export (ZIP, 10 slides max) — per-slide themes, fun layouts, cover personalization + icons
 
 'use client';
 
@@ -6,6 +6,7 @@ import React, { useRef, useState } from 'react';
 import Papa from 'papaparse';
 import type { ParseResult } from 'papaparse';
 import * as htmlToImage from 'html-to-image';
+import JSZip from 'jszip';
 import {
   Activity, Flame, HeartPulse, LineChart, Mountain, Timer,
   CalendarDays, Trophy, Dumbbell, Zap, Upload, Bike, Waves,
@@ -70,6 +71,7 @@ type StepsMetrics = {
   totalSteps: number;
   avgStepsPerDay: number;
   bestWeek: { label: string; steps: number } | null;
+  worstWeek: { label: string; steps: number } | null;
 };
 
 type StatCardProps = {
@@ -282,6 +284,22 @@ function formatDurationHMS(totalSeconds: number): string {
   if (seconds || (!hours && !minutes)) parts.push(`${seconds}s`);
   return parts.join(' ');
 }
+
+/** Human-ish duration for Instagram slides (e.g., 7h 31m). */
+function formatDurationMinutesToHuman(totalMinutes: number): string {
+  const mins = Math.max(0, Math.round(totalMinutes || 0));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+/** Human-ish duration from seconds for Instagram slides (e.g., 1h 05m). */
+function formatSecondsHuman(totalSeconds: number): string {
+  const mins = Math.max(0, Math.round((totalSeconds || 0) / 60));
+  return formatDurationMinutesToHuman(mins);
+}
+
 function formatDateDisplay(date: Date | null | undefined): string {
   if (!date) return '';
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -856,6 +874,7 @@ function computeSleepMetrics(rows: CsvRow[]): SleepMetrics {
 function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
   let periods = 0, totalSteps = 0, totalDays = 0;
   let bestWeek: StepsMetrics['bestWeek'] | null = null;
+  let worstWeek: StepsMetrics['worstWeek'] | null = null;
 
   const looksWeekly = true;
 
@@ -868,15 +887,20 @@ function computeStepsMetrics(rows: CsvRow[]): StepsMetrics {
 
     periods += 1; totalSteps += steps; totalDays += daysInPeriod;
 
+    const resolvedLabel = label || (looksWeekly ? `Week ${periods}` : `Day ${periods}`);
+
     if (!bestWeek || steps > bestWeek.steps) {
-      bestWeek = { label: label || (looksWeekly ? `Week ${periods}` : `Day ${periods}`), steps };
+      bestWeek = { label: resolvedLabel, steps };
+    }
+    if (!worstWeek || steps < worstWeek.steps) {
+      worstWeek = { label: resolvedLabel, steps };
     }
   });
 
   const days = totalDays || (looksWeekly ? periods * 7 : periods || 1);
   const avgStepsPerDay = totalSteps / days;
 
-  return { weeks: periods, totalSteps, avgStepsPerDay, bestWeek };
+  return { weeks: periods, totalSteps, avgStepsPerDay, bestWeek, worstWeek };
 }
 
 /* =================================== Promise wrapper =================================== */
@@ -953,6 +977,100 @@ export default function Home() {
   const [stepsError, setStepsError] = useState<string | null>(null);
 
   const pageRef = useRef<HTMLDivElement | null>(null);
+
+// ========================= Instagram Carousel Export (v5) =========================
+type IGFormat = 'portrait45' | 'portrait34' | 'square';
+type IGSlideKey = 'cover' | 'distance' | 'time' | 'steps' | 'sleep' | 'longest' | 'calories' | 'elevation';
+type IGThemeKey = 'midnight' | 'sunset' | 'ocean' | 'neon';
+
+const IG_FORMATS: Record<IGFormat, { label: string; w: number; h: number }> = {
+  portrait45: { label: 'Portrait 4:5 (1080×1350) — recommended', w: 1080, h: 1350 },
+  portrait34: { label: 'Portrait 3:4 (1080×1440)', w: 1080, h: 1440 },
+  square: { label: 'Square 1:1 (1080×1080)', w: 1080, h: 1080 },
+};
+
+const IG_COVER_TAGLINES = [
+  'A whole year, distilled into vibes.',
+  'Your year in motion — no receipts required.',
+  'Proof you did the thing (repeatedly).',
+  'Stats, but make it a glow‑up.',
+  'A highlight reel for your legs.',
+  'Consistency called. You answered.',
+  'Annual report, but fun.',
+] as const;
+
+
+const IG_THEMES: Record<IGThemeKey, { label: string; bg: string; accent: string; card: string; muted: string }> = {
+  midnight: {
+    label: 'Midnight',
+    bg: 'linear-gradient(135deg, #050505 0%, #111827 55%, #0b1020 100%)',
+    accent: '#a78bfa',
+    card: 'rgba(255,255,255,0.06)',
+    muted: 'rgba(255,255,255,0.70)',
+  },
+  sunset: {
+    label: 'Sunset',
+    bg: 'linear-gradient(135deg, #0b1020 0%, #7c2d12 55%, #111827 100%)',
+    accent: '#fb7185',
+    card: 'rgba(255,255,255,0.07)',
+    muted: 'rgba(255,255,255,0.72)',
+  },
+  ocean: {
+    label: 'Ocean',
+    bg: 'linear-gradient(135deg, #001b2e 0%, #0e7490 55%, #0b1020 100%)',
+    accent: '#22d3ee',
+    card: 'rgba(255,255,255,0.07)',
+    muted: 'rgba(255,255,255,0.72)',
+  },
+  neon: {
+    label: 'Neon',
+    bg: 'linear-gradient(135deg, #050505 0%, #052e16 55%, #0b1020 100%)',
+    accent: '#34d399',
+    card: 'rgba(255,255,255,0.06)',
+    muted: 'rgba(255,255,255,0.70)',
+  },
+};
+
+const [showIGExport, setShowIGExport] = useState(false);
+const [igFormat, setIgFormat] = useState<IGFormat>('portrait45');
+const [igYear, setIgYear] = useState<string>(String(new Date().getFullYear()));
+const [igName, setIgName] = useState<string>('');
+const [igLocation, setIgLocation] = useState<string>('');
+const [igCoverTagline, setIgCoverTagline] = useState<string>('auto');
+const [igSlides, setIgSlides] = useState<Record<IGSlideKey, boolean>>({
+  cover: true,
+  distance: true,
+  time: true,
+  steps: true,
+  sleep: true,
+  longest: true,
+  calories: true,
+  elevation: true,
+});
+const [igExporting, setIgExporting] = useState(false);
+const [igExportError, setIgExportError] = useState<string | null>(null);
+
+// Offscreen slide refs (rendered at 1080×1350; other formats are padded/fit at export time)
+const igCoverRef = useRef<HTMLDivElement | null>(null);
+const igDistanceRef = useRef<HTMLDivElement | null>(null);
+const igTimeRef = useRef<HTMLDivElement | null>(null);
+const igStepsRef = useRef<HTMLDivElement | null>(null);
+const igSleepRef = useRef<HTMLDivElement | null>(null);
+const igLongestRef = useRef<HTMLDivElement | null>(null);
+const igCaloriesRef = useRef<HTMLDivElement | null>(null);
+const igElevationRef = useRef<HTMLDivElement | null>(null);
+
+const IG_SLIDES: Array<{ key: IGSlideKey; label: string; ref: React.RefObject<HTMLDivElement | null> }> = [
+  { key: 'cover', label: 'Cover', ref: igCoverRef },
+  { key: 'distance', label: 'Total Distance', ref: igDistanceRef },
+  { key: 'time', label: 'Total Time', ref: igTimeRef },
+  { key: 'steps', label: 'Steps', ref: igStepsRef },
+  { key: 'sleep', label: 'Sleep', ref: igSleepRef },
+  { key: 'longest', label: 'Longest Activity', ref: igLongestRef },
+  { key: 'calories', label: 'Highest Calorie Burn', ref: igCaloriesRef },
+  { key: 'elevation', label: 'Highest Point', ref: igElevationRef },
+];
+
 
   /* -------- Activities (headerless + indices) -------- */
   const handleActivitiesFile = async (file: File) => {
@@ -1038,10 +1156,135 @@ export default function Home() {
     try {
       const dataUrl = await htmlToImage.toPng(node, { cacheBust: true, width: node.scrollWidth, height: node.scrollHeight, backgroundColor: '#000000' });
       const link = document.createElement('a');
-      link.href = dataUrl; link.download = 'garmin-wrapped.png';
+      link.href = dataUrl; link.download = 'fitness-wrapped.png';
       document.body.appendChild(link); link.click(); document.body.removeChild(link);
     } catch (err) { console.error('Failed to generate image', err); alert('Sorry, something went wrong generating the image.'); }
   };
+
+
+const dataUrlToImage = (dataUrl: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+
+const fitIntoInstagram = async (sourceDataUrl: string, format: IGFormat) => {
+  const { w, h } = IG_FORMATS[format];
+  const img = await dataUrlToImage(sourceDataUrl);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context unavailable');
+
+  // Padding areas (if any) are black; the slide itself already includes theme gradients.
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, w, h);
+
+  // contain fit
+  const scale = Math.min(w / img.width, h / img.height);
+  const dw = Math.round(img.width * scale);
+  const dh = Math.round(img.height * scale);
+  const dx = Math.round((w - dw) / 2);
+  const dy = Math.round((h - dh) / 2);
+
+  ctx.drawImage(img, dx, dy, dw, dh);
+
+  return canvas.toDataURL('image/png');
+};
+
+const sanitizeFilenamePart = (input: string): string => {
+  const s = input.trim();
+  if (!s) return '';
+  // keep it simple + predictable for Windows/macOS
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48);
+};
+
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const dataUrlToBytes = async (dataUrl: string): Promise<Uint8Array> => {
+  const res = await fetch(dataUrl);
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+};
+
+const handleExportInstagramCarousel = async () => {
+  setIgExportError(null);
+
+  const selected = IG_SLIDES.filter((s) => igSlides[s.key]);
+  if (!selected.length) {
+    setIgExportError('Select at least one slide to export.');
+    return;
+  }
+  if (selected.length > 10) {
+    setIgExportError('Instagram carousels support up to 10 slides — please deselect a few.');
+    return;
+  }
+
+  const y = parseInt(igYear, 10);
+  const resolvedYear = Number.isFinite(y) ? y : new Date().getFullYear();
+
+  const namePart = sanitizeFilenamePart(igName);
+  const zipBaseName = `${namePart ? `${namePart}_` : ''}FitnessWrapped_${resolvedYear}`;
+
+  setIgExporting(true);
+  try {
+    const zip = new JSZip();
+    const folder = zip.folder(zipBaseName);
+    if (!folder) throw new Error('Unable to create zip folder');
+
+    let slideNum = 1;
+
+    for (const s of selected) {
+      const node = s.ref.current;
+      if (!node) continue;
+
+      const raw = await htmlToImage.toPng(node, {
+        cacheBust: true,
+        pixelRatio: 2,
+        width: node.scrollWidth,
+        height: node.scrollHeight,
+        backgroundColor: '#000000',
+      });
+
+      const fitted = await fitIntoInstagram(raw, igFormat);
+      const bytes = await dataUrlToBytes(fitted);
+
+      const slideLabel = sanitizeFilenamePart(s.label) || s.key;
+      const filename = `${String(slideNum).padStart(2, '0')}_${slideLabel}.png`;
+      folder.file(filename, bytes);
+      slideNum += 1;
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `${zipBaseName}.zip`);
+  } catch (err) {
+    console.error('Failed to export Instagram carousel', err);
+    setIgExportError('Sorry — something went wrong exporting the carousel.');
+  } finally {
+    setIgExporting(false);
+  }
+};
+
+
 
   /* -------- Render helpers -------- */
   const m = metrics;
@@ -1208,7 +1451,7 @@ export default function Home() {
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-2">
-            Garmin Wrapped
+            Fitness Wrapped
             </h1>
             <p className="text-sm text-zinc-400">
             {m?.startDateDisplay && m?.endDateDisplay
@@ -1287,15 +1530,167 @@ export default function Home() {
 
             {/* Download + errors */}
             <div className="flex flex-col items-start sm:items-end gap-1">
-            {metrics && (
-                <button
-                type="button"
-                onClick={handleDownloadImage}
-                className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/80 border border-zinc-600 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
-                >
-                Download as image
-                </button>
-            )}
+            
+{metrics && (
+  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+    <button
+      type="button"
+      onClick={handleDownloadImage}
+      className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/70 border border-zinc-700 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
+    >
+      Download as image
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setShowIGExport(v => !v)}
+      className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/70 border border-zinc-700 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
+    >
+      Export IG carousel
+    </button>
+  </div>
+)}
+
+{showIGExport && (
+  <div className="mt-3 w-full sm:w-[420px] rounded-2xl border border-zinc-700 bg-zinc-900/60 p-4">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="text-sm font-semibold text-white">Instagram carousel export</div>
+        <div className="text-xs text-zinc-300 mt-1">
+          Exports selected slides as a single ZIP of PNGs (max 10).
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowIGExport(false)}
+        className="text-xs text-zinc-300 hover:text-white"
+      >
+        Close
+      </button>
+    </div>
+
+    <div className="mt-3 grid grid-cols-1 gap-3">
+      <label className="text-xs text-zinc-200">
+        Format
+        <select
+          value={igFormat}
+          onChange={(e) => setIgFormat(e.target.value as IGFormat)}
+          className="mt-1 w-full rounded-xl bg-zinc-950/40 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+        >
+          {Object.entries(IG_FORMATS).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="grid grid-cols-1 gap-3">
+        <label className="text-xs text-zinc-200">
+          Year
+          <input
+            value={igYear}
+            onChange={(e) => setIgYear(e.target.value)}
+            inputMode="numeric"
+            className="mt-1 w-full rounded-xl bg-zinc-950/40 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+            placeholder="2025"
+          />
+        </label>
+
+        <label className="text-xs text-zinc-200">
+          Name (optional)
+          <input
+            value={igName}
+            onChange={(e) => setIgName(e.target.value)}
+            className="mt-1 w-full rounded-xl bg-zinc-950/40 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+            placeholder="Jordan"
+          />
+        </label>
+
+        <label className="text-xs text-zinc-200">
+          Location (optional)
+          <input
+            value={igLocation}
+            onChange={(e) => setIgLocation(e.target.value)}
+            className="mt-1 w-full rounded-xl bg-zinc-950/40 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+            placeholder="Denver, CO"
+          />
+        </label>
+
+        <label className="text-xs text-zinc-200">
+          Cover tagline
+          <select
+            value={igCoverTagline}
+            onChange={(e) => setIgCoverTagline(e.target.value)}
+            className="mt-1 w-full rounded-xl bg-zinc-950/40 border border-zinc-700 px-3 py-2 text-xs text-zinc-100"
+          >
+            <option value="auto">Auto-pick (recommended)</option>
+            {IG_COVER_TAGLINES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="text-[11px] text-zinc-400">
+          Year + name are used for the ZIP folder name. Name/location appear on the cover slide.
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-zinc-200">Slides</div>
+          <div className="text-[11px] text-zinc-400">
+            Selected {Object.values(igSlides).filter(Boolean).length}/10
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {IG_SLIDES.map((s) => (
+            <label key={s.key} className="flex items-center gap-2 text-xs text-zinc-200">
+              <input
+                type="checkbox"
+                checked={!!igSlides[s.key]}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIgExportError(null);
+                  setIgSlides((prev) => {
+                    const next = { ...prev, [s.key]: checked };
+                    const count = Object.values(next).filter(Boolean).length;
+                    if (count > 10) {
+                      // reject the change
+                      setIgExportError('Max 10 slides — please deselect another slide first.');
+                      return prev;
+                    }
+                    return next;
+                  });
+                }}
+              />
+              <span>{s.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {igExportError && (
+        <div className="text-xs text-red-300 bg-red-950/30 border border-red-900/50 rounded-xl p-2">
+          {igExportError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={igExporting}
+        onClick={handleExportInstagramCarousel}
+        className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/70 border border-zinc-700 rounded-xl px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {igExporting ? 'Exporting…' : 'Download ZIP'}
+      </button>
+
+      <div className="text-[11px] text-zinc-400">
+        Tip: unzip on your phone/desktop, then upload images to Instagram in order (01, 02, 03…).
+      </div>
+    </div>
+  </div>
+)}
+
 
             {error && (
                 <p className="text-xs text-red-400 max-w-xs text-right">{error}</p>
@@ -1690,6 +2085,787 @@ export default function Home() {
     </div>
   </section>
 )}
+
+
+
+{/* Offscreen Instagram slides (rendered at 1080×1350 and captured via html-to-image) */}
+<div aria-hidden className="pointer-events-none fixed left-[-12000px] top-0 opacity-0">
+  {(() => {
+    const resolvedYear = (() => {
+      const y = parseInt(igYear, 10);
+      return Number.isFinite(y) && y >= 1900 && y <= 2200 ? y : new Date().getFullYear();
+    })();
+
+    const nameStr = igName.trim();
+    const locStr = igLocation.trim();
+
+    const baseSeed = [
+      resolvedYear,
+      nameStr || 'anon',
+      locStr || 'nowhere',
+      m?.sessions ?? 0,
+      sleepMetrics?.weeks ?? 0,
+      stepsMetrics?.weeks ?? 0,
+    ].join('|');
+
+    const coverMeta = (() => {
+      const parts: string[] = [String(resolvedYear)];
+      if (nameStr) parts.push(nameStr);
+      if (locStr) parts.push(locStr);
+      return parts.join(' • ');
+    })();
+
+    const distStr = (() => {
+      if (!m) return '—';
+      const miles = m.totalDistanceMi || 0;
+      const km = miles * 1.609344;
+      const v = isMetric ? km : miles;
+      const unit = isMetric ? 'km' : 'mi';
+      return `${Math.round(v).toLocaleString()} ${unit}`;
+    })();
+
+    const totalTimeStr = (() => {
+      if (!m) return '—';
+      return formatSecondsHuman(m.totalActivitySeconds || 0);
+    })();
+
+    const sessionsStr = m ? `${(m.sessions || 0).toLocaleString()}` : '—';
+
+    const peakHrStr = (() => {
+      const v = m?.maxHr;
+      return v ? `${Math.round(v)} bpm` : '—';
+    })();
+
+    const elevationStr = (() => {
+      if (!m?.maxElevation) return '—';
+      if (isMetric) return `${Math.round(m.maxElevation * 0.3048).toLocaleString()} m`;
+      return `${Math.round(m.maxElevation).toLocaleString()} ft`;
+    })();
+
+    const sleepAvgScoreStr = sleepMetrics ? sleepMetrics.avgScore.toFixed(1) : '—';
+    const sleepAvgDurStr = sleepMetrics ? formatDurationMinutesToHuman(sleepMetrics.avgDurationMinutes) : '—';
+
+    const stepsTotalStr = stepsMetrics ? stepsMetrics.totalSteps.toLocaleString() : '—';
+
+    const longestType = m?.longestActivity ? getLongestTypeLabel(m.longestActivity) : 'Longest activity';
+    const effortType = m?.highestCalorie ? getHighestEffortLabel(m.highestCalorie) : 'Effort';
+
+    const bestSleepLabel = sleepMetrics?.bestScoreWeek?.label || '—';
+    const worstSleepLabel = sleepMetrics?.worstScoreWeek?.label || '—';
+    const bestStepsLabel = stepsMetrics?.bestWeek?.label || '—';
+    const worstStepsLabel = stepsMetrics?.worstWeek?.label || '—';
+
+    const IG_TAGLINES: Record<IGSlideKey, string[]> = {
+      cover: [...IG_COVER_TAGLINES],
+      distance: [
+        'You basically explored the map.',
+        'Mileage? Yes.',
+        'Your shoes asked for a raise.',
+        'If “out for a bit” was a lifestyle.',
+        'Frequent flyer, but on foot.',
+      ],
+      time: [
+        'Time well spent (and then some).',
+        'Hours on the move. Zero regrets.',
+        'You kept showing up.',
+        'Clocked in. Clocked out. Repeat.',
+        'That’s a lot of “just one more.”',
+      ],
+      steps: [
+        'Your feet were booked and busy.',
+        'Walking is the original superpower.',
+        'Step count said: “let’s go.”',
+        'Tiny strides. Big year.',
+        'Putting miles on the pavement.',
+      ],
+      sleep: [
+        'Recovery arc: progressing.',
+        'You earned those Z’s.',
+        'Sleep is a sport too.',
+        'Rest days, but nightly.',
+        'Dream big. Recover bigger.',
+      ],
+      longest: [
+        'The main event.',
+        'You were OUT there.',
+        'This one had a soundtrack.',
+        'Endurance flex detected.',
+        'A proper mission.',
+      ],
+      calories: [
+        'Kitchen officially earned.',
+        'You turned snacks into stats.',
+        'Certified furnace behavior.',
+        'Fuel in, watts out.',
+        'Suffering, but make it numbers.',
+      ],
+      elevation: [
+        'You chased the skyline.',
+        'Gravity tried. You didn’t care.',
+        'Up is a direction — you chose it.',
+        'Altitude attitude.',
+        'Peak pursuits only.',
+      ],
+    };
+
+    const tag = (k: IGSlideKey) => pickStable(`tag|${k}|${baseSeed}`, IG_TAGLINES[k] || []);
+
+    const coverTagline = igCoverTagline === 'auto' ? tag('cover') : igCoverTagline;
+
+    const THEME_BY_SLIDE: Record<IGSlideKey, IGThemeKey> = {
+      cover: 'midnight',
+      distance: 'ocean',
+      time: 'sunset',
+      steps: 'neon',
+      sleep: 'midnight',
+      longest: 'sunset',
+      calories: 'neon',
+      elevation: 'ocean',
+    };
+
+    const themeFor = (k: IGSlideKey) => IG_THEMES[THEME_BY_SLIDE[k] ?? 'midnight'];
+
+    const stylesFor = (theme: { bg: string; accent: string; card: string; muted: string }) => {
+      const slideBase: React.CSSProperties = {
+        width: 1080,
+        height: 1350,
+        padding: 72,
+        boxSizing: 'border-box',
+        color: '#ffffff',
+        background: theme.bg,
+        position: 'relative',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"',
+      };
+
+      const card: React.CSSProperties = {
+        background: theme.card,
+        border: '1px solid rgba(255,255,255,0.10)',
+        borderRadius: 34,
+        padding: 28,
+        backdropFilter: 'blur(10px)',
+      };
+
+      const muted: React.CSSProperties = { color: theme.muted };
+      const accentLine: React.CSSProperties = {
+        height: 8,
+        width: 190,
+        borderRadius: 999,
+        background: theme.accent,
+        opacity: 0.95,
+      };
+
+      const watermarkStyle: React.CSSProperties = {
+        position: 'absolute',
+        right: 72,
+        bottom: 44,
+        fontSize: 14,
+        letterSpacing: 2.4,
+        textTransform: 'uppercase',
+        color: theme.muted,
+        opacity: 0.55,
+      };
+
+      const sticker: React.CSSProperties = {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 14px',
+        borderRadius: 999,
+        border: '1px solid rgba(255,255,255,0.16)',
+        background: 'rgba(0,0,0,0.35)',
+        fontSize: 14,
+        letterSpacing: 1.6,
+        textTransform: 'uppercase',
+      };
+
+      return { slideBase, card, muted, accentLine, watermarkStyle, sticker };
+    };
+
+    const shapes = (k: IGSlideKey, theme: { accent: string }) => {
+      const common: React.CSSProperties = { position: 'absolute', borderRadius: 9999, pointerEvents: 'none' };
+      const aSize = k === 'sleep' ? 520 : 640;
+      const bSize = k === 'steps' ? 460 : 560;
+
+      return (
+        <>
+          <div
+            style={{
+              ...common,
+              width: aSize,
+              height: aSize,
+              right: -220,
+              top: -180,
+              background: `radial-gradient(circle at 30% 30%, ${theme.accent}55, transparent 60%)`,
+              filter: 'blur(2px)',
+              opacity: 0.9,
+            }}
+          />
+          <div
+            style={{
+              ...common,
+              width: bSize,
+              height: bSize,
+              left: -220,
+              bottom: -220,
+              background: `radial-gradient(circle at 60% 60%, ${theme.accent}40, transparent 62%)`,
+              filter: 'blur(2px)',
+              opacity: 0.85,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: -120,
+              top: 180,
+              width: 520,
+              height: 520,
+              borderRadius: 9999,
+              border: '2px dashed rgba(255,255,255,0.10)',
+              transform: 'rotate(-18deg)',
+              opacity: 0.9,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              right: -240,
+              bottom: 120,
+              width: 680,
+              height: 140,
+              borderRadius: 9999,
+              background: 'linear-gradient(90deg, rgba(255,255,255,0.00), rgba(255,255,255,0.10), rgba(255,255,255,0.00))',
+              transform: 'rotate(-12deg)',
+              opacity: 0.7,
+            }}
+          />
+          {/* Dots */}
+          {Array.from({ length: 14 }).map((_, i) => (
+            <div
+              key={`${k}-dot-${i}`}
+              style={{
+                position: 'absolute',
+                left: 90 + i * 48,
+                top: k === 'cover' ? 1180 : 1220,
+                width: 10,
+                height: 10,
+                borderRadius: 9999,
+                background: i % 2 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.10)',
+                opacity: 0.9,
+              }}
+            />
+          ))}
+
+          {/* Confetti */}
+          {Array.from({ length: 18 }).map((_, i) => (
+            <div
+              key={`${k}-conf-${i}`}
+              style={{
+                position: 'absolute',
+                left: (i * 57) % 980,
+                top: 140 + ((i * 83) % 980),
+                width: i % 3 === 0 ? 14 : 10,
+                height: i % 4 === 0 ? 14 : 10,
+                borderRadius: i % 2 ? 9999 : 6,
+                background: i % 5 === 0 ? `${theme.accent}66` : 'rgba(255,255,255,0.12)',
+                transform: `rotate(${(i * 33) % 360}deg)`,
+                opacity: 0.85,
+              }}
+            />
+          ))}
+        </>
+      );
+    };
+
+    const watermarkEl = (theme: { muted: string }) => (
+      <div style={{ position: 'absolute', right: 72, bottom: 44, fontSize: 14, letterSpacing: 2.4, textTransform: 'uppercase', color: theme.muted, opacity: 0.55 }}>
+        Fitness Wrapped
+      </div>
+    );
+
+    // Small helper for consistent slide headers
+    const SlideHeader = (props: {
+      title: string;
+      subtitle?: string;
+      theme: { accent: string; muted: string };
+      stickerText?: string;
+      icon?: React.ReactNode;
+      pill?: React.ReactNode;
+    }) => {
+      const { title, subtitle, theme, stickerText, icon, pill } = props;
+
+      return (
+        <div>
+          <div style={{ height: 8, width: 190, borderRadius: 999, background: theme.accent, opacity: 0.95 }} />
+
+          <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 16 }}>
+            {icon ? (
+              <div
+                style={{
+                  width: 58,
+                  height: 58,
+                  borderRadius: 22,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(0,0,0,0.34)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+                }}
+              >
+                {icon}
+              </div>
+            ) : null}
+
+            <div style={{ fontSize: 64, fontWeight: 950, letterSpacing: -1 }}>{title}</div>
+          </div>
+
+          {subtitle ? <div style={{ marginTop: 10, fontSize: 22, color: theme.muted }}>{subtitle}</div> : null}
+
+          {(stickerText || pill) ? (
+            <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {stickerText ? (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 14px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(255,255,255,0.16)',
+                    background: 'rgba(0,0,0,0.35)',
+                    fontSize: 14,
+                    letterSpacing: 1.6,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {stickerText}
+                </div>
+              ) : null}
+              {pill}
+            </div>
+          ) : null}
+        </div>
+      );
+    };
+
+    // COVER
+    {
+      const theme = themeFor('cover');
+      const st = stylesFor(theme);
+      const fourthLabel = m?.maxElevation ? 'Highest point' : stepsMetrics ? 'Total steps' : sleepMetrics ? 'Avg sleep score' : 'Peak HR';
+      const fourthValue = m?.maxElevation
+        ? elevationStr
+        : stepsMetrics
+          ? stepsTotalStr
+          : sleepMetrics
+            ? sleepAvgScoreStr
+            : peakHrStr;
+
+      return (
+        <>
+          <div ref={igCoverRef} style={st.slideBase}>
+            {shapes('cover', theme)}
+            {watermarkEl(theme)}
+            <div>
+              <SlideHeader
+                title="Fitness Wrapped"
+                subtitle={`${coverMeta} — ${coverTagline}`}
+                theme={theme}
+                stickerText="Carousel"
+                icon={<Activity size={24} color={theme.accent} />}
+                pill={(() => {
+                  const sportName = m?.favoriteActivity?.name || m?.topActivityTypes?.[0]?.name || '';
+                  if (!sportName) return null;
+
+                  const n = sportName.toLowerCase();
+                  const icon = n.includes('bike') || n.includes('cycl')
+                    ? <Bike size={16} color={theme.accent} />
+                    : n.includes('swim')
+                      ? <Waves size={16} color={theme.accent} />
+                      : n.includes('strength') || n.includes('lift') || n.includes('gym')
+                        ? <Dumbbell size={16} color={theme.accent} />
+                        : n.includes('run')
+                          ? <Activity size={16} color={theme.accent} />
+                          : <Zap size={16} color={theme.accent} />;
+
+                  return (
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 14px',
+                        borderRadius: 999,
+                        border: '1px solid rgba(255,255,255,0.16)',
+                        background: 'rgba(0,0,0,0.22)',
+                        fontSize: 14,
+                        letterSpacing: 1.2,
+                      }}
+                    >
+                      {icon}
+                      <span style={{ textTransform: 'uppercase', letterSpacing: 1.6, color: theme.muted }}>Top sport</span>
+                      <span style={{ fontWeight: 800 }}>{sportName}</span>
+                    </div>
+                  );
+                })()}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+              <div style={st.card}>
+                <div style={{ fontSize: 14, color: theme.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Distance</div>
+                <div style={{ marginTop: 10, fontSize: 50, fontWeight: 900 }}>{distStr}</div>
+                <div style={{ marginTop: 8, fontSize: 16, color: theme.muted }}>Around Earth: {m ? `${m.earthPercent.toFixed(2)}%` : '—'}</div>
+              </div>
+              <div style={st.card}>
+                <div style={{ fontSize: 14, color: theme.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Time</div>
+                <div style={{ marginTop: 10, fontSize: 50, fontWeight: 900 }}>{totalTimeStr}</div>
+                <div style={{ marginTop: 8, fontSize: 16, color: theme.muted }}>Sessions: {sessionsStr}</div>
+              </div>
+              <div style={st.card}>
+                <div style={{ fontSize: 14, color: theme.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Peak HR</div>
+                <div style={{ marginTop: 10, fontSize: 40, fontWeight: 850 }}>{peakHrStr}</div>
+                <div style={{ marginTop: 8, fontSize: 16, color: theme.muted }}>Max heart rate seen in activities</div>
+              </div>
+              <div style={st.card}>
+                <div style={{ fontSize: 14, color: theme.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>{fourthLabel}</div>
+                <div style={{ marginTop: 10, fontSize: 40, fontWeight: 850 }}>{fourthValue}</div>
+                <div style={{ marginTop: 8, fontSize: 16, color: theme.muted }}>
+                  {fourthLabel === 'Highest point'
+                    ? 'Altitude checks out.'
+                    : fourthLabel === 'Total steps'
+                      ? 'Your feet did numbers.'
+                      : fourthLabel === 'Avg sleep score'
+                        ? 'Recovery matters.'
+                        : 'Heart said: go.'}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 16, color: theme.muted }}>Made from your exported CSVs • {coverMeta}</div>
+          </div>
+
+          {/* DISTANCE */}
+          {(() => {
+            const themeD = themeFor('distance');
+            const stD = stylesFor(themeD);
+            return (
+              <div ref={igDistanceRef} style={stD.slideBase}>
+                {shapes('distance', themeD)}
+                {watermarkEl(themeD)}
+                <div>
+                  <SlideHeader title="Total Distance" icon={<LineChart size={24} color={themeD.accent} />} subtitle={tag('distance')} theme={themeD} stickerText={isMetric ? 'Kilometers' : 'Miles'} />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stD.card}>
+                    <div style={{ fontSize: 14, color: themeD.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Distance</div>
+                    <div style={{ marginTop: 10, fontSize: 72, fontWeight: 950 }}>{distStr}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeD.muted }}>
+                      {m ? `That’s about ${(m.totalDistanceMi / MARATHON_MI).toFixed(1)} marathons.` : '—'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={stD.card}>
+                      <div style={{ fontSize: 14, color: themeD.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Around Earth</div>
+                      <div style={{ marginTop: 10, fontSize: 44, fontWeight: 900 }}>{m ? `${m.earthPercent.toFixed(2)}%` : '—'}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeD.muted }}>Teleportation not confirmed.</div>
+                    </div>
+                    <div style={stD.card}>
+                      <div style={{ fontSize: 14, color: themeD.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Sessions</div>
+                      <div style={{ marginTop: 10, fontSize: 44, fontWeight: 900 }}>{m ? (m.sessions || 0).toLocaleString() : '—'}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeD.muted }}>Consistency is a flex.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeD.muted }}>Built from your Activities export.</div>
+              </div>
+            );
+          })()}
+
+          {/* TIME */}
+          {(() => {
+            const themeT = themeFor('time');
+            const stT = stylesFor(themeT);
+            return (
+              <div ref={igTimeRef} style={stT.slideBase}>
+                {shapes('time', themeT)}
+                {watermarkEl(themeT)}
+                <div>
+                  <SlideHeader title="Total Time" icon={<Timer size={24} color={themeT.accent} />} subtitle={tag('time')} theme={themeT} stickerText="Hours & minutes" />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stT.card}>
+                    <div style={{ fontSize: 14, color: themeT.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Time moving</div>
+                    <div style={{ marginTop: 10, fontSize: 72, fontWeight: 950 }}>{m ? formatSecondsHuman(m.totalActivitySeconds || 0) : '—'}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeT.muted }}>
+                      {m?.sessions ? `Avg per session: ${m.avgDurationSeconds ? formatSecondsHuman(m.avgDurationSeconds) : '—'}` : '—'}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={stT.card}>
+                      <div style={{ fontSize: 14, color: themeT.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Sessions</div>
+                      <div style={{ marginTop: 10, fontSize: 44, fontWeight: 900 }}>{m ? (m.sessions || 0).toLocaleString() : '—'}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeT.muted }}>You kept showing up.</div>
+                    </div>
+                    <div style={stT.card}>
+                      <div style={{ fontSize: 14, color: themeT.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Grind day</div>
+                      <div style={{ marginTop: 10, fontSize: 28, fontWeight: 800 }}>{m?.grindDay?.name || '—'}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeT.muted }}>
+                        {m?.grindDay ? `${m.grindDay.activities} activities · ${m.grindDay.totalHours.toFixed(1)} hrs` : '—'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeT.muted }}>Built from your Activities export.</div>
+              </div>
+            );
+          })()}
+
+          {/* STEPS */}
+          {(() => {
+            const themeS = themeFor('steps');
+            const stS = stylesFor(themeS);
+            return (
+              <div ref={igStepsRef} style={stS.slideBase}>
+                {shapes('steps', themeS)}
+                {watermarkEl(themeS)}
+                <div>
+                  <SlideHeader title="Steps" icon={<Zap size={24} color={themeS.accent} />} subtitle={tag('steps')} theme={themeS} stickerText={stepsMetrics ? `${stepsMetrics.weeks} weeks tracked` : 'Optional upload'} />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stS.card}>
+                    <div style={{ fontSize: 14, color: themeS.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Total steps</div>
+                    <div style={{ marginTop: 10, fontSize: 72, fontWeight: 950 }}>{stepsMetrics ? stepsMetrics.totalSteps.toLocaleString() : '—'}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeS.muted }}>Avg / day: {stepsMetrics ? Math.round(stepsMetrics.avgStepsPerDay).toLocaleString() : '—'}</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={stS.card}>
+                      <div style={{ fontSize: 14, color: themeS.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Best week</div>
+                      <div style={{ marginTop: 10, fontSize: 28, fontWeight: 850 }}>{bestStepsLabel}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeS.muted }}>{stepsMetrics?.bestWeek ? `${stepsMetrics.bestWeek.steps.toLocaleString()} steps` : ''}</div>
+                      <div style={{ marginTop: 8, fontSize: 16, color: themeS.muted }}>Feet were feeling themselves.</div>
+                    </div>
+                    <div style={stS.card}>
+                      <div style={{ fontSize: 14, color: themeS.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Worst week</div>
+                      <div style={{ marginTop: 10, fontSize: 28, fontWeight: 850 }}>{worstStepsLabel}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeS.muted }}>{stepsMetrics?.worstWeek ? `${stepsMetrics.worstWeek.steps.toLocaleString()} steps` : ''}</div>
+                      <div style={{ marginTop: 8, fontSize: 16, color: themeS.muted }}>Recharge was valid.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeS.muted }}>Built from your Steps export (optional).</div>
+              </div>
+            );
+          })()}
+
+          {/* SLEEP */}
+          {(() => {
+            const themeSl = themeFor('sleep');
+            const stSl = stylesFor(themeSl);
+            return (
+              <div ref={igSleepRef} style={stSl.slideBase}>
+                {shapes('sleep', themeSl)}
+                {watermarkEl(themeSl)}
+                <div>
+                  <SlideHeader title="Sleep" icon={<Waves size={24} color={themeSl.accent} />} subtitle={tag('sleep')} theme={themeSl} stickerText={sleepMetrics ? `${sleepMetrics.weeks} weeks tracked` : 'Optional upload'} />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stSl.card}>
+                    <div style={{ fontSize: 14, color: themeSl.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Average score</div>
+                    <div style={{ marginTop: 10, fontSize: 72, fontWeight: 950 }}>{sleepAvgScoreStr}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeSl.muted }}>Avg duration: {sleepAvgDurStr}</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={stSl.card}>
+                      <div style={{ fontSize: 14, color: themeSl.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Best week</div>
+                      <div style={{ marginTop: 10, fontSize: 28, fontWeight: 850 }}>{bestSleepLabel}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeSl.muted }}>
+                        {sleepMetrics?.bestScoreWeek ? `Score: ${Math.round(sleepMetrics.bestScoreWeek.score)} · ${formatDurationMinutesToHuman(sleepMetrics.bestScoreWeek.durationMinutes)}` : ''}
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 16, color: themeSl.muted }}>Recovery was immaculate.</div>
+                    </div>
+                    <div style={stSl.card}>
+                      <div style={{ fontSize: 14, color: themeSl.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Worst week</div>
+                      <div style={{ marginTop: 10, fontSize: 28, fontWeight: 850 }}>{worstSleepLabel}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeSl.muted }}>
+                        {sleepMetrics?.worstScoreWeek ? `Score: ${Math.round(sleepMetrics.worstScoreWeek.score)} · ${formatDurationMinutesToHuman(sleepMetrics.worstScoreWeek.durationMinutes)}` : ''}
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 16, color: themeSl.muted }}>We’ve all been there.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeSl.muted }}>Built from your Sleep export (optional).</div>
+              </div>
+            );
+          })()}
+
+          {/* LONGEST */}
+          {(() => {
+            const themeL = themeFor('longest');
+            const stL = stylesFor(themeL);
+            const title = m?.longestActivity?.title || '—';
+            const date = m?.longestActivity?.date || '—';
+            const dur = m?.longestActivity?.durationSeconds ? formatSecondsHuman(m.longestActivity.durationSeconds) : '—';
+            const cal = m?.longestActivity?.calories != null ? `${m.longestActivity.calories} kcal` : '—';
+
+            return (
+              <div ref={igLongestRef} style={stL.slideBase}>
+                {shapes('longest', themeL)}
+                {watermarkEl(themeL)}
+                <div>
+                  <SlideHeader title="Longest Activity" icon={<Trophy size={24} color={themeL.accent} />} subtitle={tag('longest')} theme={themeL} stickerText={longestType} />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stL.card}>
+                    <div style={{ fontSize: 14, color: themeL.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Title</div>
+                    <div style={{ marginTop: 10, fontSize: 40, fontWeight: 900, lineHeight: 1.15 }}>{title}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeL.muted }}>{date}</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
+                    <div style={stL.card}>
+                      <div style={{ fontSize: 14, color: themeL.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Duration</div>
+                      <div style={{ marginTop: 10, fontSize: 32, fontWeight: 900 }}>{dur}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeL.muted }}>Time-on-feet trophy.</div>
+                    </div>
+                    <div style={stL.card}>
+                      <div style={{ fontSize: 14, color: themeL.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Calories</div>
+                      <div style={{ marginTop: 10, fontSize: 32, fontWeight: 900 }}>{cal}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeL.muted }}>Snacks were harmed.</div>
+                    </div>
+                    <div style={stL.card}>
+                      <div style={{ fontSize: 14, color: themeL.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Type</div>
+                      <div style={{ marginTop: 10, fontSize: 32, fontWeight: 900 }}>{longestType}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeL.muted }}>You were out there.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeL.muted }}>Built from your Activities export.</div>
+              </div>
+            );
+          })()}
+
+          {/* CALORIES */}
+          {(() => {
+            const themeC = themeFor('calories');
+            const stC = stylesFor(themeC);
+            const title = m?.highestCalorie?.title || '—';
+            const date = m?.highestCalorie?.date || '—';
+            const dur = m?.highestCalorie?.durationSeconds ? formatSecondsHuman(m.highestCalorie.durationSeconds) : '—';
+            const cal = m?.highestCalorie?.calories != null ? `${m.highestCalorie.calories} kcal` : '—';
+
+            return (
+              <div ref={igCaloriesRef} style={stC.slideBase}>
+                {shapes('calories', themeC)}
+                {watermarkEl(themeC)}
+                <div>
+                  <SlideHeader title="Highest Calorie Burn" icon={<Flame size={24} color={themeC.accent} />} subtitle={tag('calories')} theme={themeC} stickerText={effortType} />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stC.card}>
+                    <div style={{ fontSize: 14, color: themeC.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Title</div>
+                    <div style={{ marginTop: 10, fontSize: 40, fontWeight: 900, lineHeight: 1.15 }}>{title}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeC.muted }}>{date}</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
+                    <div style={stC.card}>
+                      <div style={{ fontSize: 14, color: themeC.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Calories</div>
+                      <div style={{ marginTop: 10, fontSize: 40, fontWeight: 950 }}>{cal}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeC.muted }}>Kitchen earned.</div>
+                    </div>
+                    <div style={stC.card}>
+                      <div style={{ fontSize: 14, color: themeC.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Duration</div>
+                      <div style={{ marginTop: 10, fontSize: 32, fontWeight: 900 }}>{dur}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeC.muted }}>No chill.</div>
+                    </div>
+                    <div style={stC.card}>
+                      <div style={{ fontSize: 14, color: themeC.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Effort</div>
+                      <div style={{ marginTop: 10, fontSize: 32, fontWeight: 900 }}>{effortType}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeC.muted }}>Pain cave certified.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeC.muted }}>Built from your Activities export.</div>
+              </div>
+            );
+          })()}
+
+          {/* ELEVATION */}
+          {(() => {
+            const themeE = themeFor('elevation');
+            const stE = stylesFor(themeE);
+
+            const ascentStr = (() => {
+              if (!m?.totalAscent) return '—';
+              if (isMetric) return `${Math.round(m.totalAscent * 0.3048).toLocaleString()} m`;
+              return `${Math.round(m.totalAscent).toLocaleString()} ft`;
+            })();
+
+            const everestStr = (() => {
+              if (!m?.totalAscent) return '—';
+              return (m.totalAscent / EVEREST_FT).toFixed(2);
+            })();
+
+            return (
+              <div ref={igElevationRef} style={stE.slideBase}>
+                {shapes('elevation', themeE)}
+                {watermarkEl(themeE)}
+                <div>
+                  <SlideHeader title="Highest Point" icon={<Mountain size={24} color={themeE.accent} />} subtitle={tag('elevation')} theme={themeE} stickerText="Vertical vibes" />
+                </div>
+
+                <div style={{ display: 'grid', gap: 18 }}>
+                  <div style={stE.card}>
+                    <div style={{ fontSize: 14, color: themeE.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Highest point</div>
+                    <div style={{ marginTop: 10, fontSize: 72, fontWeight: 950 }}>{elevationStr}</div>
+                    <div style={{ marginTop: 10, fontSize: 18, color: themeE.muted }}>Peak pursuits only.</div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={stE.card}>
+                      <div style={{ fontSize: 14, color: themeE.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Total ascent</div>
+                      <div style={{ marginTop: 10, fontSize: 44, fontWeight: 900 }}>{ascentStr}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeE.muted }}>Gravity took the L.</div>
+                    </div>
+                    <div style={stE.card}>
+                      <div style={{ fontSize: 14, color: themeE.muted, textTransform: 'uppercase', letterSpacing: 1.6 }}>Mount Everests</div>
+                      <div style={{ marginTop: 10, fontSize: 44, fontWeight: 900 }}>{everestStr}</div>
+                      <div style={{ marginTop: 10, fontSize: 16, color: themeE.muted }}>Alpine energy.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 16, color: themeE.muted }}>Built from your Activities export.</div>
+              </div>
+            );
+          })()}
+        </>
+      );
+    }
+  })()}
+</div>
 
                 {/* How to export (Garmin Connect) */}
         <div className="mt-3 text-xs text-zinc-500 leading-relaxed">
