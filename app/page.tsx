@@ -1,4 +1,4 @@
-// File: app/page.tsx v5.0.4 - Instagram Carousel export (ZIP, 10 slides max) — per-slide themes, fun layouts, cover personalization + icons
+// File: app/page.tsx v5.0.5 - Instagram Carousel export (ZIP, 10 slides max) — per-slide themes, fun layouts, cover personalization + icons
 
 'use client';
 
@@ -178,6 +178,60 @@ function getHighestEffortLabel(h: HighestCalorieOut): string {
 function normalizeKey(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
+
+/* ===================== Activity header matching (robust) ===================== */
+
+function findHeaderIndex(header: string[], candidates: string[]): number | null {
+  const normHeader = header.map(h => normalizeKey(h));
+  const normCandidates = candidates.map(c => normalizeKey(c));
+
+  // Exact match first
+  for (const cand of normCandidates) {
+    const idx = normHeader.indexOf(cand);
+    if (idx >= 0) return idx;
+  }
+
+  // Substring match (handles units like "Max Elevation (ft)" or localized punctuation)
+  for (const cand of normCandidates) {
+    for (let i = 0; i < normHeader.length; i++) {
+      const h = normHeader[i] || '';
+      if (!h) continue;
+      if (h.includes(cand) || cand.includes(h)) return i;
+    }
+  }
+
+  return null;
+}
+
+type ActivityIdxMap = typeof GARMIN_ACTIVITY_COL_INDEX;
+
+const ACTIVITY_HEADER_ALIASES: Record<keyof ActivityIdxMap, string[]> = {
+  ActivityType: ['Activity Type','Type d’activité','Type d activite','Aktivitätsart','Aktivitaetsart','Tipo de actividad','Soort activiteit'],
+  Date: ['Date','Datum','Fecha'],
+  Title: ['Title','Titre','Titel','Título','Titulo'],
+  Distance: ['Distance','Distanz','Distancia','Afstand'],
+  Calories: ['Calories','Kalorien','Calorías','Calorias','Calorieën'],
+  Time: ['Time','Temps','Zeit','Tiempo','Tijd','Durée','Duree','Dauer'],
+  AvgHR: ['Avg HR','Average HR','Fréquence cardiaque moyenne','Frequence cardiaque moyenne','Durchschnittliche HF','Durchschn HF','Media FC','Gemiddelde HF'],
+  MaxHR: ['Max HR','Maximum HR','Fréquence cardiaque maximale','Frequence cardiaque maximale','Maximale HF','Máx FC','Max FC','Maximale HF'],
+  TotalAscent: ['Total Ascent','Ascent','Total climb','Dénivelé positif','Denivele positif','Gesamter Aufstieg','Ascenso total','Totale stijging'],
+  MovingTime: ['Moving Time','Temps de déplacement','Temps de deplacement','Bewegungszeit','Tiempo en movimiento','Beweegtijd'],
+  ElapsedTime: ['Elapsed Time','Temps écoulé','Temps ecoule','Verstrichene Zeit','Tiempo transcurrido','Verstreken tijd'],
+  MaxElevation: ['Max Elevation','Maximum Elevation','Altitude max','Altitude maximale','Maximale Höhe','Maximale Hoehe','Altura máxima','Altura maxima','Maximale hoogte'],
+  Steps: ['Steps','Pas','Schritte','Pasos','Stappen'],
+};
+
+function buildActivityIndexMap(headerRow: string[]): ActivityIdxMap {
+  const idx: ActivityIdxMap = { ...GARMIN_ACTIVITY_COL_INDEX };
+
+  for (const key of Object.keys(ACTIVITY_HEADER_ALIASES) as (keyof ActivityIdxMap)[]) {
+    const found = findHeaderIndex(headerRow, ACTIVITY_HEADER_ALIASES[key]);
+    if (found != null) (idx as Record<string, number>)[key] = found;
+  }
+
+  return idx;
+}
+
 
 function parseNumber(value: unknown): number {
   if (value == null) return 0;
@@ -668,25 +722,31 @@ const GARMIN_ACTIVITY_COL_INDEX = {
 } as const;
 
 function mapActivityRowsByIndex(rows2D: unknown[][]): CsvRow[] {
+  if (!rows2D.length) return [];
+  const headerRow = (rows2D[0] as unknown[]).map(h => toStringSafe(h));
+  const idx = buildActivityIndexMap(headerRow);
+
   const out: CsvRow[] = [];
   for (let i = 1; i < rows2D.length; i++) {
     const r = rows2D[i] as unknown[];
     if (!r?.length) continue;
+
     const row: CsvRow = {
-      'Activity Type': asCell(r[GARMIN_ACTIVITY_COL_INDEX.ActivityType]),
-      'Date':          asCell(r[GARMIN_ACTIVITY_COL_INDEX.Date]),
-      'Title':         asCell(r[GARMIN_ACTIVITY_COL_INDEX.Title]),
-      'Distance':      asCell(r[GARMIN_ACTIVITY_COL_INDEX.Distance]),
-      'Calories':      asCell(r[GARMIN_ACTIVITY_COL_INDEX.Calories]),
-      'Time':          asCell(r[GARMIN_ACTIVITY_COL_INDEX.Time]),
-      'Avg HR':        asCell(r[GARMIN_ACTIVITY_COL_INDEX.AvgHR]),
-      'Max HR':        asCell(r[GARMIN_ACTIVITY_COL_INDEX.MaxHR]),
-      'Total Ascent':  asCell(r[GARMIN_ACTIVITY_COL_INDEX.TotalAscent]),
-      'Moving Time':   asCell(r[GARMIN_ACTIVITY_COL_INDEX.MovingTime]),
-      'Elapsed Time':  asCell(r[GARMIN_ACTIVITY_COL_INDEX.ElapsedTime]),
-      'Max Elevation': asCell(r[GARMIN_ACTIVITY_COL_INDEX.MaxElevation]),
-      'Steps':         asCell(r[GARMIN_ACTIVITY_COL_INDEX.Steps]),
+      'Activity Type': asCell(r[idx.ActivityType]),
+      'Date':          asCell(r[idx.Date]),
+      'Title':         asCell(r[idx.Title]),
+      'Distance':      asCell(r[idx.Distance]),
+      'Calories':      asCell(r[idx.Calories]),
+      'Time':          asCell(r[idx.Time]),
+      'Avg HR':        asCell(r[idx.AvgHR]),
+      'Max HR':        asCell(r[idx.MaxHR]),
+      'Total Ascent':  asCell(r[idx.TotalAscent]),
+      'Moving Time':   asCell(r[idx.MovingTime]),
+      'Elapsed Time':  asCell(r[idx.ElapsedTime]),
+      'Max Elevation': asCell(r[idx.MaxElevation]),
+      'Steps':         asCell(r[idx.Steps]),
     };
+
     if (row['Activity Type'] || row['Distance'] || row['Time'] || row['Elapsed Time'] || row['Calories']) out.push(row);
   }
   return out;
@@ -1083,9 +1143,10 @@ const IG_SLIDES: Array<{ key: IGSlideKey; label: string; ref: React.RefObject<HT
 
       // Header hints for unit auto-detect
       const header = raw2D[0] as unknown[] as string[];
-      const distanceHeader  = header[GARMIN_ACTIVITY_COL_INDEX.Distance]      ?? '';
-      const ascentHeader    = header[GARMIN_ACTIVITY_COL_INDEX.TotalAscent]   ?? '';
-      const elevationHeader = header[GARMIN_ACTIVITY_COL_INDEX.MaxElevation]  ?? '';
+      const idx = buildActivityIndexMap(header);
+      const distanceHeader  = header[idx.Distance] ?? '';
+      const ascentHeader    = header[idx.TotalAscent] ?? '';
+      const elevationHeader = header[idx.MaxElevation] ?? '';
       const unitHints = {
         distance:  unitHintFromHeaderDistance(distanceHeader),
         ascent:    unitHintFromHeaderElev(ascentHeader),
@@ -1440,6 +1501,12 @@ const handleExportInstagramCarousel = async () => {
   const longestTypeStr = m?.longestActivity ? getLongestTypeLabel(m.longestActivity) : 'Long day out';
   const highestEffortStr = m?.highestCalorie ? getHighestEffortLabel(m.highestCalorie) : 'Big day in the pain cave';
 
+  const canExportAssets = !!metrics;
+  const CONTROL_RECT =
+    'inline-flex items-center justify-center gap-2 text-xs sm:text-sm text-zinc-100 bg-zinc-900/80 border border-zinc-700 rounded-xl px-4 h-10 whitespace-nowrap transition';
+  const CONTROL_RECT_HOVER = 'hover:bg-zinc-800 hover:border-zinc-500';
+  const CONTROL_RECT_DISABLED = 'opacity-50 cursor-not-allowed';
+
 
   return (
       <div
@@ -1463,93 +1530,83 @@ const handleExportInstagramCarousel = async () => {
         </div>
 
         <div className="flex flex-col items-stretch sm:items-end gap-2 sm:gap-3">
-            {/* First row: units + main upload */}
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:justify-end">
-            {/* Units pill */}
-            <div className="inline-flex items-center gap-3 text-xs text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-3 py-1">
-                <span className="text-zinc-400">Units:</span>
-                <label className="inline-flex items-center gap-1 cursor-pointer">
-                <input
-                    type="radio"
-                    name="units"
-                    value="imperial"
-                    checked={unitSystem === 'imperial'}
-                    onChange={() => setUnitSystem('imperial')}
-                />
-                <span>Imperial</span>
-                </label>
-                <label className="inline-flex items-center gap-1 cursor-pointer">
-                <input
-                    type="radio"
-                    name="units"
-                    value="metric"
-                    checked={unitSystem === 'metric'}
-                    onChange={() => setUnitSystem('metric')}
-                />
-                <span>Metric</span>
-                </label>
+          {/* Unified control buttons (rectangular + consistent sizing) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 w-full sm:w-auto">
+            {/* Units */}
+            <div className={`${CONTROL_RECT} ${CONTROL_RECT_HOVER} justify-between`}>
+              <span className="text-zinc-200">Units</span>
+              <select
+                value={unitSystem ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value as 'imperial' | 'metric' | '';
+                  setUnitSystem(v ? v : null);
+                }}
+                className="ml-3 bg-zinc-950 text-zinc-100 text-sm outline-none cursor-pointer rounded-md px-2 py-1 border border-zinc-800"
+              >
+                <option className="bg-zinc-950 text-zinc-100" value="" disabled>
+                  Select
+                </option>
+                <option className="bg-zinc-950 text-zinc-100" value="imperial">Imperial</option>
+                <option className="bg-zinc-950 text-zinc-100" value="metric">Metric</option>
+              </select>
             </div>
 
-            {/* Main activities upload */}
-            <label className="inline-flex items-center gap-2 text-sm text-zinc-200 bg-zinc-900/80 border border-zinc-700 rounded-full px-4 py-2 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
-                <Upload className="w-4 h-4" />
-                <span>Upload Activities CSV</span>
-                <input
+            {/* Upload Activities */}
+            <label className={`${CONTROL_RECT} ${CONTROL_RECT_HOVER} cursor-pointer`}>
+              <Upload className="w-4 h-4" />
+              <span>Upload Activities</span>
+              <input
                 type="file"
                 accept=".csv,text/csv"
                 className="hidden"
                 onChange={handleFileChange}
-                />
+              />
             </label>
-            </div>
 
-            {/* Second row: optional uploads */}
-            <div className="flex flex-wrap gap-2 sm:justify-end">
-            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
-                <Upload className="w-3 h-3" />
-                <span>Sleep CSV (optional)</span>
-                <input
+            {/* Upload Sleep */}
+            <label className={`${CONTROL_RECT} ${CONTROL_RECT_HOVER} cursor-pointer`}>
+              <Upload className="w-4 h-4" />
+              <span>Sleep CSV</span>
+              <input
                 type="file"
                 accept=".csv,text/csv"
                 className="hidden"
                 onChange={handleSleepFileChange}
-                />
+              />
             </label>
 
-            <label className="inline-flex items-center gap-2 text-xs text-zinc-300 bg-zinc-900/60 border border-zinc-700 rounded-full px-3 py-1 cursor-pointer hover:bg-zinc-800 hover:border-zinc-500 transition">
-                <Upload className="w-3 h-3" />
-                <span>Steps CSV (optional)</span>
-                <input
+            {/* Upload Steps */}
+            <label className={`${CONTROL_RECT} ${CONTROL_RECT_HOVER} cursor-pointer`}>
+              <Upload className="w-4 h-4" />
+              <span>Steps CSV</span>
+              <input
                 type="file"
                 accept=".csv,text/csv"
                 className="hidden"
                 onChange={handleStepsFileChange}
-                />
+              />
             </label>
-            </div>
 
-            {/* Download + errors */}
-            <div className="flex flex-col items-start sm:items-end gap-1">
-            
-{metrics && (
-  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-    <button
-      type="button"
-      onClick={handleDownloadImage}
-      className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/70 border border-zinc-700 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
-    >
-      Download as image
-    </button>
+            {/* Download image */}
+            <button
+              type="button"
+              disabled={!canExportAssets}
+              onClick={canExportAssets ? handleDownloadImage : undefined}
+              className={`${CONTROL_RECT} ${canExportAssets ? CONTROL_RECT_HOVER : CONTROL_RECT_DISABLED}`}
+            >
+              Download as image
+            </button>
 
-    <button
-      type="button"
-      onClick={() => setShowIGExport(v => !v)}
-      className="text-xs sm:text-sm text-zinc-100 bg-zinc-800/70 border border-zinc-700 rounded-full px-4 py-2 hover:bg-zinc-700 hover:border-zinc-400 transition"
-    >
-      Export IG carousel
-    </button>
-  </div>
-)}
+            {/* IG export */}
+            <button
+              type="button"
+              disabled={!canExportAssets}
+              onClick={canExportAssets ? () => setShowIGExport((v) => !v) : undefined}
+              className={`${CONTROL_RECT} ${canExportAssets ? CONTROL_RECT_HOVER : CONTROL_RECT_DISABLED}`}
+            >
+              Export IG Carousel
+            </button>
+          </div>
 
 {showIGExport && (
   <div className="mt-3 w-full sm:w-[420px] rounded-2xl border border-zinc-700 bg-zinc-900/60 p-4">
@@ -1691,21 +1748,17 @@ const handleExportInstagramCarousel = async () => {
   </div>
 )}
 
-
+          <div className="mt-1 space-y-1">
             {error && (
-                <p className="text-xs text-red-400 max-w-xs text-right">{error}</p>
+              <p className="text-xs text-red-400 max-w-xs text-right">{error}</p>
             )}
             {sleepError && (
-                <p className="text-xs text-red-400 max-w-xs text-right">
-                {sleepError}
-                </p>
+              <p className="text-xs text-red-400 max-w-xs text-right">{sleepError}</p>
             )}
             {stepsError && (
-                <p className="text-xs text-red-400 max-w-xs text-right">
-                {stepsError}
-                </p>
+              <p className="text-xs text-red-400 max-w-xs text-right">{stepsError}</p>
             )}
-            </div>
+          </div>
         </div>
         </header>
 
