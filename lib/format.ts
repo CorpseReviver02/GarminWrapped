@@ -8,7 +8,7 @@ export function formatDurationLong(totalSeconds: number): string {
   const hours = Math.floor(s / 3600); s -= hours * 3600;
   const minutes = Math.floor(s / 60);
   const parts: string[] = [];
-  if (days) parts.push(`${days}day${days !== 1 ? 's' : ''}`);
+  if (days) parts.push(`${days} day${days !== 1 ? 's' : ''}`);
   if (hours) parts.push(`${hours}hrs`);
   if (minutes || (!days && !hours)) parts.push(`${minutes}m`);
   return parts.join(' ');
