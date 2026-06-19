@@ -1,5 +1,5 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
+-
 # Garmin Wrapped
 
 Garmin Wrapped is a small Next.js app that turns your yearly Garmin data into a clean, shareable “year in review” dashboard.  
