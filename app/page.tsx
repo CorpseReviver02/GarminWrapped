@@ -378,7 +378,7 @@ const handleExportInstagramCarousel = async () => {
 
   const totalStepsStr = step ? step.totalSteps.toLocaleString() : null;
   const avgStepsStr = step?.avgStepsPerDay
-    ? `${Math.round(step.avgStepsPerDay).toLocaleString()} / day`
+    ? `${Math.round(step.avgStepsPerDay).toLocaleString()}/day`
     : null;
 
   // Total distance
@@ -811,7 +811,7 @@ const handleExportInstagramCarousel = async () => {
                       {step && totalStepsStr && (
                         <div className="text-lg text-zinc-300 mt-1">
                           <span className="font-semibold text-lg sm:text-xl">{totalStepsStr} steps</span>
-                          {avgStepsStr && <> <span className="font-semibold text-lg sm:text-xl">{avgStepsStr}</span></>}
+                          {avgStepsStr && <> <span className="text-zinc-500">·</span> <span className="font-semibold text-lg sm:text-xl">{avgStepsStr}</span></>}
                           {(marathonsFromSteps || fiveKsFromSteps) ? (
                             <div className="text-lg text-zinc-400 mt-1">
                               ~{marathonsFromSteps.toLocaleString()} marathons • ~{fiveKsFromSteps.toLocaleString()} 5Ks
@@ -1049,8 +1049,11 @@ const handleExportInstagramCarousel = async () => {
                       <div className="text-sm font-semibold truncate">{t.name}</div>
                       <div className="text-xs text-zinc-400">{t.count} session{t.count !== 1 ? 's' : ''}</div>
                       <div className="text-sm text-zinc-100">
-                        {(isMetric ? t.totalDistanceMi * 1.60934 : t.totalDistanceMi
-                        ).toFixed(1)} {isMetric ? 'km' : 'mi'} · {formatDurationHMS(t.totalSeconds)}                      </div>
+                        {t.totalDistanceMi > 0
+                          ? `${(isMetric ? t.totalDistanceMi * 1.60934 : t.totalDistanceMi).toFixed(1)} ${isMetric ? 'km' : 'mi'} · `
+                          : ''}
+                        {formatDurationHMS(t.totalSeconds)}
+                      </div>
                     </div>
                   ))}
                 </div>
