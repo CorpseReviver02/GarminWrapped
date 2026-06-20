@@ -201,6 +201,7 @@ export function computeMetrics(
         date: formatDateDisplay(l.date),
         durationSeconds: l.durationSeconds,
         calories: parseNumber(l.row['Calories']),
+        type: toStringSafe(l.row['Activity Type']) || 'Other',
       };
     }
     return undefined;
@@ -214,6 +215,7 @@ export function computeMetrics(
         date: formatDateDisplay(h.date),
         calories: h.calories,
         durationSeconds: h.durationSeconds,
+        type: toStringSafe(h.row['Activity Type']) || 'Other',
       };
     }
     return undefined;

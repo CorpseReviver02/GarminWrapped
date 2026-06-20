@@ -29,8 +29,8 @@ export type Metrics = {
   favoriteActivity?: { name: string; count: number };
   mostActiveMonth?: { name: string; totalHours: number };
   longestStreak?: { lengthDays: number; start: string; end: string };
-  longestActivity?: { title: string; date: string; durationSeconds: number; calories?: number };
-  highestCalorie?: { title: string; date: string; calories: number; durationSeconds?: number };
+  longestActivity?: { title: string; date: string; durationSeconds: number; calories?: number; type: string };
+  highestCalorie?: { title: string; date: string; calories: number; durationSeconds?: number; type: string };
   totalAscent?: number;
   maxElevation?: number;
   avgDistanceMi?: number;
