@@ -7,6 +7,7 @@ import * as htmlToImage from 'html-to-image';
 import {
   Activity, Flame, HeartPulse, LineChart, Mountain, Timer,
   CalendarDays, Trophy, Dumbbell, Zap, Upload, Bike, Waves, Route,
+  Footprints, Ruler,
 } from 'lucide-react';
 
 // ---- Extracted logic modules (see /lib) ----
@@ -15,6 +16,7 @@ import type {
   ActivityTypeSummary, RawRow, Raw2D, CsvRow, UnitHint,
 } from '../lib/types';
 import { parseCsvFile, PAPA_ROWS_CONFIG } from '../lib/parse';
+import { detectCsvKind } from '../lib/detect';
 import {
   formatDurationLong, formatDurationHMS, formatDurationMinutesToHuman,
   formatPacePerUnit, formatSwimPacePer100m,
@@ -64,6 +66,9 @@ function DeltaChip({ delta, lowerIsBetter = false }: { delta: MetricDelta; lower
   return <span className={`text-xs font-semibold ${color}`}>{label}</span>;
 }
 
+const RECAP_STORAGE_KEY = 'fw_recap_stat_ids_v1';
+const DEFAULT_RECAP_IDS = ['distance', 'time', 'sessions', 'calories', 'maxHr', 'elevation', 'steps', 'sleep'];
+
 export default function Home() {
   const [unitSystem, setUnitSystem] = useState<UnitSystem | null>(null);
 
@@ -74,9 +79,8 @@ export default function Home() {
   const [trendSport, setTrendSport] = useState<'all' | 'run' | 'bike' | 'swim' | 'other'>('all');
   const [storyOpen, setStoryOpen] = useState(false);
   const [showRecapCustomize, setShowRecapCustomize] = useState(false);
-  const [recapStatIds, setRecapStatIds] = useState<string[]>([
-    'distance', 'time', 'sessions', 'calories', 'maxHr', 'elevation', 'steps', 'sleep',
-  ]);
+  const [recapStatIds, setRecapStatIds] = useState<string[]>(DEFAULT_RECAP_IDS);
+  const [recapHydrated, setRecapHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [sleepMetrics, setSleepMetrics] = useState<SleepMetrics | null>(null);
@@ -96,6 +100,19 @@ export default function Home() {
       const results = await parseCsvFile<RawRow>(file, PAPA_ROWS_CONFIG);
       const raw2D = (results.data as Raw2D).filter(r => Array.isArray(r) && r.length > 0);
       if (!raw2D.length) throw new Error('No activity rows found.');
+
+      const kind = detectCsvKind(raw2D);
+      if (kind === 'sleep' || kind === 'steps') {
+        setActivityRows(null);
+        setActivityUnitHints(null);
+        setFocusYear(null);
+        setError(
+          kind === 'sleep'
+            ? 'That looks like your Sleep export — upload it under “Sleep CSV”.'
+            : 'That looks like your Steps export — upload it under “Steps CSV”.',
+        );
+        return;
+      }
 
       // Header hints for unit auto-detect
       const header = raw2D[0] as unknown[] as string[];
@@ -134,6 +151,18 @@ export default function Home() {
       const results = await parseCsvFile<RawRow>(file, PAPA_ROWS_CONFIG);
       const raw2D = (results.data as Raw2D).filter(r => r && r.length > 0);
       if (!raw2D.length) throw new Error('No sleep rows found.');
+
+      const kind = detectCsvKind(raw2D);
+      if (kind === 'activities' || kind === 'steps') {
+        setSleepMetrics(null);
+        setSleepError(
+          kind === 'activities'
+            ? 'That looks like your Activities export — use “Upload Activities”.'
+            : 'That looks like your Steps export — upload it under “Steps CSV”.',
+        );
+        return;
+      }
+
       const rows = mapSleepRowsByIndex(raw2D);
       const m = computeSleepMetrics(rows);
       setSleepMetrics(m);
@@ -152,6 +181,18 @@ export default function Home() {
       const results = await parseCsvFile<RawRow>(file, PAPA_ROWS_CONFIG);
       const raw2D = (results.data as Raw2D).filter(r => r && r.length > 0);
       if (!raw2D.length) throw new Error('No steps rows found.');
+
+      const kind = detectCsvKind(raw2D);
+      if (kind === 'activities' || kind === 'sleep') {
+        setStepsMetrics(null);
+        setStepsError(
+          kind === 'activities'
+            ? 'That looks like your Activities export — use “Upload Activities”.'
+            : 'That looks like your Sleep export — upload it under “Sleep CSV”.',
+        );
+        return;
+      }
+
       const rows = mapStepsRowsByIndex(raw2D);
       const m = computeStepsMetrics(rows);
       setStepsMetrics(m);
@@ -211,6 +252,31 @@ export default function Home() {
   useEffect(() => {
     setTrendSport('all');
   }, [focusYear]);
+
+  // Load the saved recap selection once on mount (client only), then persist changes.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECAP_STORAGE_KEY);
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+          setRecapStatIds(parsed as string[]);
+        }
+      }
+    } catch {
+      /* ignore unavailable/blocked storage */
+    }
+    setRecapHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!recapHydrated) return; // don't overwrite storage before the initial load
+    try {
+      localStorage.setItem(RECAP_STORAGE_KEY, JSON.stringify(recapStatIds));
+    } catch {
+      /* ignore */
+    }
+  }, [recapHydrated, recapStatIds]);
   const step = stepsMetrics;
 
   const isMetric = unitSystem === 'metric';
@@ -727,6 +793,61 @@ export default function Home() {
         </div>
         </header>
 
+        {/* First-run onboarding */}
+        {!m && (
+          <section className="rounded-3xl border border-zinc-800 bg-zinc-900/50 p-6 sm:p-10 shadow-[0_0_50px_rgba(0,0,0,0.6)]">
+            <div className="mx-auto max-w-xl text-center">
+              <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-white/5 border border-zinc-700 flex items-center justify-center">
+                <Upload className="w-6 h-6 text-zinc-300" />
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">See your year, wrapped.</h2>
+              <p className="mt-2 text-sm sm:text-base text-zinc-400">
+                Upload your Garmin Connect exports to build your recap. Everything is processed in your browser — nothing is uploaded.
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">First, pick Imperial or Metric units above.</p>
+
+              <ol className="mt-6 space-y-3 text-left">
+                <li className="flex gap-3 rounded-2xl border border-zinc-800 bg-black/30 p-4">
+                  <span className="shrink-0 h-6 w-6 rounded-full bg-zinc-100 text-zinc-900 text-xs font-bold flex items-center justify-center">1</span>
+                  <div className="text-sm">
+                    <span className="font-semibold text-zinc-100">Activities</span>
+                    <span className="text-zinc-500"> · required</span>
+                    <div className="text-zinc-400 mt-0.5">
+                      In{' '}
+                      <a className="text-zinc-300 underline hover:text-white" href="https://connect.garmin.com/modern/activities" target="_blank" rel="noreferrer">Garmin Connect → Activities</a>
+                      , scroll to the last activity you want, then <span className="text-zinc-300">Export CSV</span>. Loading more years into one file unlocks the year toggle and comparisons.
+                    </div>
+                  </div>
+                </li>
+                <li className="flex gap-3 rounded-2xl border border-zinc-800 bg-black/30 p-4">
+                  <span className="shrink-0 h-6 w-6 rounded-full bg-zinc-700 text-zinc-100 text-xs font-bold flex items-center justify-center">2</span>
+                  <div className="text-sm">
+                    <span className="font-semibold text-zinc-100">Steps</span>
+                    <span className="text-zinc-500"> · optional</span>
+                    <div className="text-zinc-400 mt-0.5">
+                      In{' '}
+                      <a className="text-zinc-300 underline hover:text-white" href="https://connect.garmin.com/modern/report/29/wellness/last_year" target="_blank" rel="noreferrer">Steps report</a>
+                      , set <span className="text-zinc-300">1 Year</span> → <span className="text-zinc-300">Export</span>.
+                    </div>
+                  </div>
+                </li>
+                <li className="flex gap-3 rounded-2xl border border-zinc-800 bg-black/30 p-4">
+                  <span className="shrink-0 h-6 w-6 rounded-full bg-zinc-700 text-zinc-100 text-xs font-bold flex items-center justify-center">3</span>
+                  <div className="text-sm">
+                    <span className="font-semibold text-zinc-100">Sleep</span>
+                    <span className="text-zinc-500"> · optional</span>
+                    <div className="text-zinc-400 mt-0.5">
+                      In{' '}
+                      <a className="text-zinc-300 underline hover:text-white" href="https://connect.garmin.com/modern/sleep" target="_blank" rel="noreferrer">Sleep</a>
+                      , set <span className="text-zinc-300">1 Year</span> → three dots → <span className="text-zinc-300">Export CSV</span>.
+                    </div>
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </section>
+        )}
+
         {/* Distance + Core */}
         {m && (
           <div className="space-y-5 sm:space-y-6">
@@ -905,7 +1026,7 @@ export default function Home() {
             {/* Averages */}
             <section className="grid gap-4 sm:gap-5 md:grid-cols-3">
               <StatCard icon={Timer} value={avgDurationStr} label="Avg duration" helper="Per session." />
-              <StatCard icon={Activity} value={avgDistanceStr} label="Avg distance" helper="Per activity." />
+              <StatCard icon={Ruler} value={avgDistanceStr} label="Avg distance" helper="Per activity." />
               <StatCard icon={CalendarDays} value={mostActiveMonthStr || '--'} label="Most active month" helper="Where you stacked the most time." />
             </section>
 
@@ -915,7 +1036,7 @@ export default function Home() {
               <div className="bg-gradient-to-br from-red-600/40 via-orange-500/30 to-zinc-900/90 border border-red-400/50 rounded-3xl p-5 sm:p-6 shadow-[0_0_40px_rgba(0,0,0,0.7)]">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="h-9 w-9 rounded-2xl bg-black/40 flex items-center justify-center border border-white/10">
-                    <Activity className="w-5 h-5 text-red-200" />
+                    <Footprints className="w-5 h-5 text-red-200" />
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-red-200">Running</p>
@@ -1205,7 +1326,8 @@ export default function Home() {
 )}
 
 
-                {/* How to export (Garmin Connect) */}
+        {/* How to export (Garmin Connect) — quick reference once data is loaded */}
+        {m && (
         <div className="mt-3 text-xs text-zinc-500 leading-relaxed">
           <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1">How to export CSVs</p>
           <ul className="list-disc pl-5 space-y-1">
@@ -1244,6 +1366,7 @@ export default function Home() {
             </li>
           </ul>
         </div>
+        )}
 
         <footer className="mt-10 text-xs text-zinc-500">
           <p>© 2025 Jordan Lindsay. Not affiliated with Garmin Ltd.</p>

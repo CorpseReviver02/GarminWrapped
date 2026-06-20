@@ -88,12 +88,33 @@ export default function StoryMode({ scenes, onClose, fileBase = 'FitnessWrapped'
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // Escape to close.
+  // Keyboard: Escape closes; arrows / Page / Home / End move between scenes.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      const fwd = e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown';
+      const back = e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp';
+      const first = e.key === 'Home';
+      const last = e.key === 'End';
+      if (!fwd && !back && !first && !last) return;
+      e.preventDefault();
+      const target = first
+        ? 0
+        : last
+          ? scenes.length - 1
+          : back
+            ? Math.max(0, activeIdx - 1)
+            : Math.min(scenes.length - 1, activeIdx + 1);
+      sceneRefs.current[target]?.scrollIntoView({ behavior: 'smooth' });
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, activeIdx, scenes.length]);
+
+  // Move focus into the dialog on open so keyboard users start in context.
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   // Reveal scenes as they enter; track the active one for the counter + rail.
   useEffect(() => {
@@ -122,7 +143,7 @@ export default function StoryMode({ scenes, onClose, fileBase = 'FitnessWrapped'
   const pad = (n: number) => String(n).padStart(2, '0');
 
   return (
-    <div className="fixed inset-0 z-50 bg-black text-white">
+    <div className="fixed inset-0 z-50 bg-black text-white" role="dialog" aria-modal="true" aria-label="Your year — story mode">
       {/* Scene counter — the sequence is real, so the count is information, not decoration. */}
       <div className="fixed top-4 left-4 z-20 text-sm tracking-[0.3em] tabular-nums text-white/70">
         {pad(activeIdx + 1)} <span className="text-white/35">/ {pad(scenes.length)}</span>
@@ -162,7 +183,7 @@ export default function StoryMode({ scenes, onClose, fileBase = 'FitnessWrapped'
         ))}
       </div>
 
-      <div ref={containerRef} className="h-full overflow-y-auto snap-y snap-mandatory scroll-smooth">
+      <div ref={containerRef} tabIndex={-1} className="h-full overflow-y-auto snap-y snap-mandatory scroll-smooth outline-none">
         {scenes.map((s, i) => {
           const pal = PALETTES[s.palette];
           const Motif = MOTIF_ICONS[s.motif];
